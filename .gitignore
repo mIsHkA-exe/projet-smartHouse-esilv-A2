@@ -1,0 +1,14 @@
+# Identifiants (R23)
+arduino_secrets.h
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Systèmes et éditeurs
+.DS_Store
+Thumbs.db
+.vscode/
