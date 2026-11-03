@@ -1,9 +1,9 @@
 # Arduino — Smart House
 
-Firmware de la carte et croquis de test des composants.
-
-> **Version :** v1 — 03/11/2026 · **Responsable :** discussion `Electronics`
-> Toute modification du brochage doit être signalée : la discussion `NetSec` en dépend.
+>Firmware de la carte et croquis de test des composants.
+>
+>[![Arduino](https://img.shields.io/badge/Arduino-UNO%20R4%20WiFi-00979D?logo=arduino\&logoColor=white)](https://www.arduino.cc/)
+>[![C++](https://img.shields.io/badge/C%2B%2B-Embedded-00599C?logo=cplusplus\&logoColor=white)](https://isocpp.org/)
 
 ---
 
