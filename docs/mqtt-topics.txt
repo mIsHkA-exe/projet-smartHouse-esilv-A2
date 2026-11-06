@@ -1,0 +1,305 @@
+CONTRAT MQTT — SMART HOUSE
+Fichier : docs/mqtt-topics.txt
+Version : v0.7 — 06/11/2026 — VALIDÉ par l'utilisateur (valeurs marquées
+          [TO VERIFY] à confirmer par mesure avant la v1.0)
+          v0.3 : broker Mosquitto renseigné au § 5.
+          v0.4 : authentification et accès réseau (TLS) au § 5.
+          v0.5 : résultats T2-T4 (§ 3.1, § 6) ; compteur d'ID du serveur
+                 conservé (§ 4) ; accusé des doublons modifié (§ 4) ;
+                 modules password-file / acl-file de Mosquitto 2.1 (§ 5).
+          v0.7 : résultats T5b à T8 (§ 3.7, § 5, § 6) ; exigences sur
+                 le certificat du broker (§ 5).
+          v0.6 : T5a validé (§ 3.7) ; champ « taille » de l'annonce
+                 redéfini (octets envoyés, remplissage compris) (§ 3.7).
+Responsable : NetSec (CODE_REPO.md § 9)
+Règle : toute modification de ce fichier se fait dans la même pull request
+que le code qui l'utilise, côté carte ET côté serveur (CODE_REPO.md § 8).
+
+Statuts : [VALIDATED] validé · [PROPOSED] proposé · [TO VERIFY] à vérifier · [OPEN] non tranché
+
+======================================================================
+1. PRINCIPES
+======================================================================
+
+[VALIDATED] Clients du broker : uniquement la carte et le serveur Python.
+            Le dashboard (navigateur PC / téléphone) parle au serveur en
+            HTTP(S), jamais au broker.
+[VALIDATED] Organisation « une racine par sens » :
+              smarthouse/carte/...    messages carte -> serveur
+              smarthouse/serveur/...  messages serveur -> carte
+[VALIDATED] Messages montants (carte -> serveur) : JSON.
+[VALIDATED] Commandes descendantes (serveur -> carte) : texte court.
+[VALIDATED] Images : annonce en JSON + morceaux binaires bruts numérotés,
+            sans renvoi ; image abandonnée si un morceau manque.
+[VALIDATED] Horodatage par le serveur à la réception.
+[VALIDATED] Aucun message retenu pour les images ni pour les commandes.
+[VALIDATED] Noms de topics : minuscules, sans accent ni espace (ASCII).
+[VALIDATED] JSON : UTF-8, clés sans accent, nombres avec un point décimal.
+
+======================================================================
+2. TABLEAU DES TOPICS
+======================================================================
+
+Sens   Topic                                   Format   QoS  Retenu
+-----  --------------------------------------  -------  ---  ------
+C->S   smarthouse/carte/connexion              JSON     1    oui
+C->S   smarthouse/carte/etat                   JSON     1    oui
+C->S   smarthouse/carte/mesures                JSON     0    non
+C->S   smarthouse/carte/durees                 JSON     0    non
+C->S   smarthouse/carte/evenement              JSON     1    non
+C->S   smarthouse/carte/ack                    JSON     1    non
+C->S   smarthouse/carte/image/annonce          JSON     0    non
+C->S   smarthouse/carte/image/<img>/<n>        binaire  0    non
+S->C   smarthouse/serveur/commande             texte    1    NON (jamais)
+
+[VALIDATED] (sync-netsec-v6, sync-netsec-v7).
+
+======================================================================
+3. DÉTAIL DES MESSAGES CARTE -> SERVEUR
+======================================================================
+
+3.1 smarthouse/carte/connexion — présence de la carte   [VALIDATED]
+    - À la connexion, la carte publie :   {"en_ligne": true}
+    - Message de testament déclaré à la connexion, publié par le broker
+      si la carte disparaît :            {"en_ligne": false}
+    - Retenu : oui.
+    - Intervalle de maintien de connexion (keep-alive) : 15 s.
+      Le broker publie le testament après 1,5 fois cet intervalle sans
+      échange (MQTT 3.1.1 § 3.1.2.10) : coupure détectée en 22,5 s au plus.
+      [VALIDATED] T2/T3 : ArduinoMqttClient attend la valeur en
+      millisecondes (15000) ; coupure brutale détectée en 20,6 s (T3).
+
+3.2 smarthouse/carte/etat — état fonctionnel courant   [VALIDATED]
+    Publié à chaque changement d'état et après chaque connexion.
+    Exemple :
+      {"alarme": "latent", "buzzer": false, "led_rouge": false,
+       "diffusion": false, "led_temp": "orange"}
+    Champs :
+      alarme      "latent"    surveillance active, aucune intrusion (D08)
+                  "intrusion" intrusion détectée et notifiée, en attente
+                              du choix de l'utilisateur (D11)
+                  "alerte"    ALERTER reçu : buzzer + LED rouge extérieure
+                  Retour à "latent" uniquement par REARMER (D07, D29).
+      buzzer      true/false (STOP_BUZZER le passe à false sans changer
+                  "alarme")
+      led_rouge   true/false (reste allumée jusqu'à REARMER)
+      diffusion   true/false (envoi d'images en cours)
+      led_temp    "bleu" | "orange" | "rouge" (D14)
+
+3.3 smarthouse/carte/mesures — mesures du BME680   [VALIDATED]
+    Exemple :
+      {"seq": 128, "temperature": 21.4, "humidite": 45.2,
+       "pression": 1013.2, "gaz": 12.3}
+    Champs :
+      seq          compteur croissant depuis le démarrage (détection des pertes)
+      temperature  °C
+      humidite     %
+      pression     hPa   [TO VERIFY] unité renvoyée par la bibliothèque
+                         Adafruit (conversion éventuelle sur la carte)
+      gaz          kΩ    [TO VERIFY] idem ; valeur exploitable seulement
+                         après plusieurs minutes de chauffe du capteur
+    Fréquence d'envoi : toutes les 15 s.
+    (La couleur de la LED de température est décidée localement par la
+    carte, indépendamment de cette fréquence d'envoi.)
+
+3.4 smarthouse/carte/durees — durées de fonctionnement (D15)   [VALIDATED]
+    Compteurs CUMULÉS depuis le démarrage, en millisecondes, calculés par
+    différence de millis() (R17). Le serveur calcule les écarts ; une
+    valeur de "depuis" plus petite que la précédente signale un
+    redémarrage de la carte.
+    Exemple :
+      {"depuis": 3600000, "buzzer": 1200, "led_rouge": 1200,
+       "led_rgb": 3600000, "camera": 4500}
+    Fréquence d'envoi : toutes les 60 s.
+    [TO VERIFY] Liste des éléments comptés, à aligner sur les
+    consommations unitaires fournies par Electronics.
+
+3.5 smarthouse/carte/evenement — événements   [VALIDATED]
+    Exemple :
+      {"seq": 5, "type": "intrusion", "distance_cm": 8.4}
+    Champs :
+      seq          compteur croissant depuis le démarrage
+      type         "intrusion" (autres types : à ajouter si besoin)
+      distance_cm  médiane des mesures ayant déclenché (diagnostic)
+
+3.6 smarthouse/carte/ack — accusé de réception des commandes   [VALIDATED]
+    Exemple :
+      {"id": 17, "cmd": "REARMER", "resultat": "ok"}
+    Champs :
+      id        identifiant repris de la commande reçue
+      cmd       mot de commande reçu
+      resultat  "ok" | "refuse" (non autorisée dans l'état courant)
+                | "inconnu" (mot non reconnu)
+
+3.7 Images   [VALIDATED]
+
+    a) smarthouse/carte/image/annonce
+       Exemple :
+         {"img": 3, "taille": 7412, "morceaux": 8}
+       Champs :
+         img       numéro de l'image, croissant depuis le démarrage
+         taille    nombre total d'octets envoyés dans les morceaux : le JPEG
+                   complet (de FF D8 à FF D9), ÉVENTUELLEMENT suivi
+                   d'octets de remplissage du tampon de la caméra.
+                   Le serveur coupe les données après le premier FF D9.
+                   (v0.5 : « taille totale du JPEG » — modifié le
+                   06/11/2026 : la caméra ne connaît que la taille de son
+                   tampon ; la fin réelle du JPEG n'est connue qu'en le
+                   lisant. Une seule lecture du tampon par image.)
+         morceaux  nombre de morceaux qui suivent
+
+    b) smarthouse/carte/image/<img>/<n>
+       Contenu : octets bruts du morceau n (n = 0 .. morceaux-1), lus
+         dans l'ordre dans le tampon de la caméra à partir de FF D8.
+       Le serveur s'abonne à smarthouse/carte/image/#.
+       Taille d'un morceau : 1024 octets (le dernier peut être plus court),
+         soit 8 morceaux au plus pour les images mesurées (8008 o max).
+         [VALIDATED] en clair (T5a, image factice de 8008 o) : 15 images,
+         0 échec, 819 ms en moyenne par image. [VALIDATED] en TLS (T7,
+         caméra réelle) : 0 échec.
+       Cadence pendant une diffusion : 1 image toutes les 3 s.
+         [VALIDATED] T5b (en clair) et T7 (TLS) : « capture + lecture +
+         envoi » = 510 à 732 ms par image (images de 2,8 à 3,6 ko, scène
+         sombre) ; cadence de 3 s tenue.
+       Contrôle de taille côté carte : garde-fou du tampon uniquement
+         (0 ou >= 60 000 o refusés) ; PAS la fourchette 6 000-8 500 o de
+         pins.h, qui dépend de la scène (images de 2,8 ko mesurées).
+       Abandon d'une image incomplète par le serveur : dès l'annonce de
+         l'image suivante, ou au plus tard 10 s après son annonce.
+
+======================================================================
+4. COMMANDES SERVEUR -> CARTE
+======================================================================
+
+Topic : smarthouse/serveur/commande — QoS 1 — JAMAIS retenu
+        (une commande retenue serait ré-exécutée à chaque reconnexion
+        de la carte).
+
+[VALIDATED] Format : MOT ID
+            MOT = mot de commande en majuscules, sans accent
+            ID  = entier croissant (>= 1) attribué par le serveur ;
+                  le serveur CONSERVE son compteur entre deux démarrages
+                  (SQLite), sinon la carte prendrait ses commandes pour
+                  des doublons.
+            Exemple : REARMER 17
+
+[VALIDATED] Liste fermée des mots de commande :
+
+  Mot                Commande du dashboard           Effet attendu
+  -----------------  ------------------------------  -------------------------------
+  OBTENIR            Obtenir (images)                Démarre la diffusion d'images
+  ARRETER_DIFFUSION  Arrêter la diffusion            Arrête la diffusion d'images
+  ALERTER            Arrêter et alerter l'intrus     Arrête la diffusion, puis
+                                                     buzzer + LED rouge extérieure
+                                                     (caméra et buzzer jamais
+                                                     simultanés, D16)
+  STOP_BUZZER        Stop buzzer                     Arrête le buzzer (D06)
+  REARMER            Réarmer                         Retour à l'état latent (D07, D29)
+
+[VALIDATED] Autorisations :
+
+  Mot                latent        intrusion     alerte
+  -----------------  ------------  ------------  ------------------------------
+  OBTENIR            autorisé      autorisé      refusé tant que le buzzer
+                                                 sonne (D16) ; autorisé après
+                                                 STOP_BUZZER
+  ARRETER_DIFFUSION  autorisé      autorisé      autorisé
+  ALERTER            autorisé      autorisé      sans effet (déjà en alerte)
+  STOP_BUZZER        sans effet    sans effet    autorisé
+  REARMER            sans effet    autorisé      autorisé
+
+  « sans effet » = accusé "ok", aucun changement.
+  OBTENIR est autorisé hors intrusion (décision utilisateur du 05/11/2026) :
+  mesures de vie privée (caméra extérieure, U32) traitées à l'étape sécurité.
+
+Règles :
+- [VALIDATED] Chaque commande reste sans effet si elle est reçue deux fois
+  (QoS 1 peut dupliquer) : la carte ignore un ID déjà traité (ID <= dernier
+  ID traité) et répond quand même par un accusé :
+    - ID égal au dernier traité : MÊME résultat que la première fois
+      ("ok", "refuse" ou "inconnu") ;
+    - ID plus ancien : "ok".
+  (v0.4 : toujours "ok" — modifié le 06/11/2026 à la demande de
+  l'utilisateur, pour qu'un refus répété ne passe pas pour un succès.)
+- [VALIDATED] Commande sans ID valide : accusé "inconnu" avec "id": 0 ;
+  le mot n'est repris dans "cmd" que s'il ne contient que A-Z et "_"
+  (sinon "cmd": ""), pour ne jamais casser le JSON.
+- [VALIDATED] Mot inconnu ou commande non autorisée : aucun effet +
+  accusé "inconnu" ou "refuse".
+
+======================================================================
+5. DROITS D'ACCÈS SUR LE BROKER
+======================================================================
+
+[VALIDATED]
+
+  Client    Identifiant client     Publie               S'abonne
+  --------  ---------------------  -------------------  ---------------------------
+  carte     smarthouse-carte       smarthouse/carte/#   smarthouse/serveur/commande
+  serveur   smarthouse-serveur     smarthouse/serveur/# smarthouse/carte/#
+
+- Tout autre client : aucun droit.
+- Identifiants de connexion : JAMAIS dans ce fichier ni dans le code
+  publié (R23). Carte : Arduino/smart_house/arduino_secrets.h (non
+  commité ; modèle : arduino_secrets.h.example). Serveur : Server/.env
+  (non commité ; modèle : Server/.env.example).
+- Broker : Eclipse Mosquitto 2.1.2 (sync-netsec-v8 ; version relevée en T0).
+  Depuis la 2.1, les options password_file et acl_file sont dépréciées au
+  profit des modules password-file et acl-file (même fonctionnement) :
+  https://mosquitto.org/blog/2026/01/version-2-1-0-released/
+- Authentification : module password-file (mots de passe hachés avec
+  mosquitto_passwd) + module acl-file (droits par utilisateur et par
+  topic) ; clients anonymes refusés explicitement ; journal des connexions
+  et des refus activé. [VALIDATED] en T1 (configuration de test).
+- Accès réseau (sync-netsec-v10) :
+    carte   -> broker : MQTT sur TLS, port 8883, certificat du broker signé
+                        par l'autorité de certification de l'équipe ; la
+                        carte reçoit le certificat de l'autorité (setCACert,
+                        WiFiS3). TLS mutuel impossible avec WiFiS3.
+    serveur -> broker : accès réservé à la machine locale (127.0.0.1),
+                        non joignable depuis le réseau.
+    Port 1883 non chiffré sur le réseau : UNIQUEMENT pendant la phase
+    « non protégée » de la démonstration d'attaque (E6), jamais en
+    configuration finale.
+- [VALIDATED] T6 : TLS 1.2 (ECDHE-RSA-AES256-GCM-SHA384) entre la carte et
+  le broker ; la carte refuse un broker signé par une autre autorité
+  (alerte « unknown ca »).
+- Exigences sur le certificat du broker (T6), dues au module Wi-Fi :
+    - noms alternatifs : IP Address = adresse du PC ET DNS = la même
+      adresse écrite en texte (sans l'entrée DNS, la carte refuse le
+      certificat : alerte « bad certificate ») ;
+    - dates : le module Wi-Fi ne connaît pas l'heure (WiFi.getTime() = 0)
+      -> début de validité au 01/01/1970. La carte ne vérifie donc AUCUNE
+      date : seule la signature par l'autorité de l'équipe la protège.
+    - si l'adresse du PC change : refaire uniquement le certificat du
+      broker (CN, IP.1, DNS.1) ; la carte garde le certificat de l'autorité.
+- [VALIDATED] T8 (refus attendus, depuis le PC) : client sans compte et
+  mauvais mot de passe refusés (« not authorised ») ; compte carte publiant
+  une commande et compte serveur publiant une mesure : « Denied PUBLISH »,
+  rien transmis ; port 1883 injoignable par l'adresse réseau du PC ;
+  client sans l'autorité de l'équipe refusé sur 8883.
+  [TO VERIFY] mêmes refus depuis un second appareil du réseau (E6).
+- Clés privées (autorité, broker) : jamais dans le dépôt.
+
+======================================================================
+6. POINTS À VÉRIFIER AVANT LA VERSION 1.0
+======================================================================
+
+[VALIDATED] Bibliothèque MQTT de la carte : ArduinoMqttClient 0.1.8 (T0).
+            Testament, messages retenus, QoS 1 en publication et en
+            abonnement, keep-alive : validés en T2, T3 et T4 (en clair).
+[VALIDATED] Envoi de charges binaires (T5a, T5b) et fonctionnement en TLS
+            (T6, T7), avec WiFiSSLClient.
+[VALIDATED] Taille des morceaux (1024 o) et cadence (3 s) tenues en clair
+            et en TLS (T5a, T5b, T7). Taille maximale de message de la
+            bibliothèque non mesurée (non nécessaire avec 1024 o).
+[VALIDATED] Mémoire libre de la carte (T7, mesure approximative) : 19 811 o
+            au démarrage, 18 767 o au minimum pendant la diffusion en TLS.
+[VALIDATED] Ne JAMAIS appeler WiFi.getTime() dans la boucle principale :
+            10 s de blocage à chaque appel tant que le module ignore
+            l'heure (T7).
+[TO VERIFY] Unités renvoyées par la bibliothèque du BME680.
+[TO VERIFY] Liste des durées comptées (consommations unitaires, Electronics).
+
+Source des mécanismes MQTT : spécification MQTT 3.1.1 (OASIS),
+https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/mqtt-v3.1.1.html
