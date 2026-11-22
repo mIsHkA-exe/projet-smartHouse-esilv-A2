@@ -1,0 +1,7 @@
+# Smart House server — Python 3.14 (Windows 11)
+# PROVISOIRE : versions directes vérifiées sur PyPI le 22/11/2026.
+# Sera remplacé par la sortie de « pip freeze » (toutes les versions figées).
+nicegui==4.0.0
+paho-mqtt==2.2.0
+cryptography==50.0.2
+python-dotenv>=1.0
