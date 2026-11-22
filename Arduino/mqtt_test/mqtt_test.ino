@@ -2,8 +2,9 @@
  * Smart House — tests T2 à T7 : MQTT carte <-> broker du PC
  * Chemin : Arduino/mqtt_test/mqtt_test.ino (branche dev/Arduino)
  * Responsable : NetSec
- * Version : v5.4 (T7 partie 2 : + MESURE de la mémoire libre ;
- *                aucun autre changement)
+ * Version : v5.5 (contrat MQTT v0.8 : champ led_temp retiré de l'état,
+ *                LED RGB retirée, D41 ; aucun autre changement)
+ *   v5.4 : mesure de la mémoire libre.
  *   v5.3 : diagnostic de l'heure retiré ; mesure des durées conservée.
  *   v5.2 : mesure des durées -> WiFi.getTime() bloque 10 s à chaque appel
  *          tant que le module ne connaît pas l'heure (toujours 0).
@@ -108,7 +109,6 @@ Alarme alarme = LATENT;
 bool buzzer = false;
 bool ledRouge = false;
 bool diffusion = false;
-const char LED_TEMP_TEST[] = "orange";   // BME680 non lu dans ce test
 
 unsigned long dernierIdTraite = 0;       // 0 = aucune commande depuis le démarrage
 const char* dernierResultat = "ok";      // résultat de la commande dernierIdTraite
@@ -142,12 +142,11 @@ void publierEtat() {
   char json[128];
   snprintf(json, sizeof(json),
            "{\"alarme\":\"%s\",\"buzzer\":%s,\"led_rouge\":%s,"
-           "\"diffusion\":%s,\"led_temp\":\"%s\"}",
+           "\"diffusion\":%s}",
            nomAlarme(alarme),
            buzzer ? "true" : "false",
            ledRouge ? "true" : "false",
-           diffusion ? "true" : "false",
-           LED_TEMP_TEST);
+           diffusion ? "true" : "false");
   mqttClient.beginMessage(TOPIC_ETAT, true /* retenu */, 1 /* QoS */);
   mqttClient.print(json);
   mqttClient.endMessage();
@@ -641,7 +640,7 @@ void afficherEtat() {
 void setup() {
   Serial.begin(115200);
   delay(1500);   // pas de while (!Serial)
-  Serial.println(F("=== Smart House — test T7 v5.4 (TLS, port 8883) ==="));
+  Serial.println(F("=== Smart House — test MQTT v5.5 (TLS, port 8883) ==="));
   afficherMemoire(F("au démarrage (rien d'initialisé)"));
 
   cameraOk = initialiserCamera();
