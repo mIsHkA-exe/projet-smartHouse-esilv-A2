@@ -1,6 +1,6 @@
 CONTRAT MQTT — SMART HOUSE
 Fichier : docs/mqtt-topics.txt
-Version : v0.7 — 06/11/2026 — VALIDÉ par l'utilisateur (valeurs marquées
+Version : v0.9 — 25/11/2026 — VALIDÉ par l'utilisateur (valeurs marquées
           [TO VERIFY] à confirmer par mesure avant la v1.0)
           v0.3 : broker Mosquitto renseigné au § 5.
           v0.4 : authentification et accès réseau (TLS) au § 5.
@@ -11,6 +11,17 @@ Version : v0.7 — 06/11/2026 — VALIDÉ par l'utilisateur (valeurs marquées
                  le certificat du broker (§ 5).
           v0.6 : T5a validé (§ 3.7) ; champ « taille » de l'annonce
                  redéfini (octets envoyés, remplissage compris) (§ 3.7).
+          v0.8 : LED RGB retirée (D41) : champ led_temp retiré de l'état
+                 (§ 3.2), compteur led_rgb retiré des durées (§ 3.4) ;
+                 alerte de température calculée par le serveur (§ 3.3) ;
+                 consigne, tolérance et hystérésis (§ 3.3) ; règles de
+                 détection (§ 3.5) ; tailles d'image du montage final
+                 (§ 3.7).
+          v0.9 : pression et résistance de gaz envoyées BRUTES en entiers,
+                 clés renommées "pression_pa" et "gaz_ohm" (§ 1, § 3.3) ;
+                 rejet des butées du capteur à ultrasons (§ 3.5) ; règle
+                 de chauffe du gaz côté serveur (§ 3.3) ; taille maximale
+                 des paquets sur le broker [PROPOSED] (§ 5).
 Responsable : NetSec (CODE_REPO.md § 9)
 Règle : toute modification de ce fichier se fait dans la même pull request
 que le code qui l'utilise, côté carte ET côté serveur (CODE_REPO.md § 8).
@@ -34,7 +45,9 @@ Statuts : [VALIDATED] validé · [PROPOSED] proposé · [TO VERIFY] à vérifier
 [VALIDATED] Horodatage par le serveur à la réception.
 [VALIDATED] Aucun message retenu pour les images ni pour les commandes.
 [VALIDATED] Noms de topics : minuscules, sans accent ni espace (ASCII).
-[VALIDATED] JSON : UTF-8, clés sans accent, nombres avec un point décimal.
+[VALIDATED] JSON : UTF-8, clés sans accent, nombres décimaux avec un point.
+            Les champs suffixés par leur unité entière ("pression_pa",
+            "gaz_ohm") sont des ENTIERS, sans point décimal (v0.9).
 
 ======================================================================
 2. TABLEAU DES TOPICS
@@ -73,7 +86,7 @@ S->C   smarthouse/serveur/commande             texte    1    NON (jamais)
     Publié à chaque changement d'état et après chaque connexion.
     Exemple :
       {"alarme": "latent", "buzzer": false, "led_rouge": false,
-       "diffusion": false, "led_temp": "orange"}
+       "diffusion": false}
     Champs :
       alarme      "latent"    surveillance active, aucune intrusion (D08)
                   "intrusion" intrusion détectée et notifiée, en attente
@@ -84,23 +97,42 @@ S->C   smarthouse/serveur/commande             texte    1    NON (jamais)
                   "alarme")
       led_rouge   true/false (reste allumée jusqu'à REARMER)
       diffusion   true/false (envoi d'images en cours)
-      led_temp    "bleu" | "orange" | "rouge" (D14)
+    (v0.7 : champ led_temp — RETIRÉ le 22/11/2026, LED RGB retirée, D41.)
 
 3.3 smarthouse/carte/mesures — mesures du BME680   [VALIDATED]
     Exemple :
       {"seq": 128, "temperature": 21.4, "humidite": 45.2,
-       "pression": 1013.2, "gaz": 12.3}
+       "pression_pa": 100464, "gaz_ohm": 92250}
     Champs :
       seq          compteur croissant depuis le démarrage (détection des pertes)
       temperature  °C
       humidite     %
-      pression     hPa   [TO VERIFY] unité renvoyée par la bibliothèque
-                         Adafruit (conversion éventuelle sur la carte)
-      gaz          kΩ    [TO VERIFY] idem ; valeur exploitable seulement
-                         après plusieurs minutes de chauffe du capteur
+      pression_pa  Pa, ENTIER : valeur brute de la bibliothèque Adafruit,
+                   sans conversion sur la carte (le serveur affiche hPa)
+      gaz_ohm      Ω, ENTIER : valeur brute (le serveur affiche kΩ) ;
+                   résistance, pas une concentration
+    [VALIDATED] v0.9 (25/11/2026) : valeurs brutes plutôt que converties
+    (Electronics : une conversion sur la carte serait irréversible, sans
+    gain de taille). Remplace « pression » (hPa) et « gaz » (kΩ) : un
+    message v0.8 est rejeté par le serveur (champ manquant), ce qui évite
+    toute confusion d'unité.
+    Plages acceptées par le serveur : temperature -40 à 85, humidite 0 à
+    100, pression_pa 30 000 à 110 000, gaz_ohm > 0 ; hors plage = mesure
+    rejetée.
+    Chauffe du capteur de gaz (Electronics, 22/11 et 25/11) : résistance
+    en forte hausse après chaque DÉMARRAGE (9,5 -> 15,8 kΩ sur 6 cycles,
+    ~90 kΩ après plusieurs minutes). Le serveur marque la valeur valide
+    quand seq >= 40, soit 10 min [TO VERIFY : relevé gas_warmup_test] ;
+    seq repartant de zéro au redémarrage, une coupure Wi-Fi ne relance
+    pas la chauffe. Température biaisée de +1 à 3 °C par le chauffage du
+    capteur : correction côté serveur [TO VERIFY : même relevé].
     Fréquence d'envoi : toutes les 15 s.
-    (La couleur de la LED de température est décidée localement par la
-    carte, indépendamment de cette fréquence d'envoi.)
+    Alerte de température (D41) : calculée par le SERVEUR à partir de
+    « temperature » ; la carte n'a aucune réaction thermique locale.
+    [VALIDATED] P02 (22/11/2026) : consigne 20 °C par défaut, réglable dans
+    le dashboard (compte connecté, bornes 10 à 30 °C, stockée en SQLite) ;
+    tolérance ± 2 °C et hystérésis 0,5 °C fixées dans la configuration du
+    serveur. Ce réglage ne passe PAS par MQTT.
 
 3.4 smarthouse/carte/durees — durées de fonctionnement (D15)   [VALIDATED]
     Compteurs CUMULÉS depuis le démarrage, en millisecondes, calculés par
@@ -109,8 +141,13 @@ S->C   smarthouse/serveur/commande             texte    1    NON (jamais)
     redémarrage de la carte.
     Exemple :
       {"depuis": 3600000, "buzzer": 1200, "led_rouge": 1200,
-       "led_rgb": 3600000, "camera": 4500}
+       "camera": 4500}
     Fréquence d'envoi : toutes les 60 s.
+    (v0.7 : compteur led_rgb — RETIRÉ le 22/11/2026, D41.)
+    Buzzer : broche D2 réservée, NON câblée tant que le transistor manque
+    (pins.h v3) ; le compteur reste dans le contrat. [PROPOSED] il vaut 0
+    tant que le buzzer n'est pas câblé (sinon le serveur estimerait la
+    consommation d'un buzzer absent).
     [TO VERIFY] Liste des éléments comptés, à aligner sur les
     consommations unitaires fournies par Electronics.
 
@@ -121,6 +158,21 @@ S->C   smarthouse/serveur/commande             texte    1    NON (jamais)
       seq          compteur croissant depuis le démarrage
       type         "intrusion" (autres types : à ajouter si besoin)
       distance_cm  médiane des mesures ayant déclenché (diagnostic)
+    Règles de détection (firmware, Electronics 01/11 et 22/11) :
+      - jamais de décision sur une mesure unique (5 mesures par cycle) ;
+      - cycle REJETÉ si l'écart min-max dépasse 2 cm ;
+      - un cycle SANS ÉCHO n'est JAMAIS une détection ;
+      - [VALIDATED] v0.9 (Electronics, pins.h v4) : les lectures de butée
+        sont écartées AVANT tout calcul : hors de ]4 ; 385[ cm (butée basse
+        3,7 cm répétée à l'identique, butée haute 386 à 393 cm) ;
+      - médiane et écart calculés ensuite sur les lectures retenues ;
+        zéro lecture retenue = absence de mesure, jamais une détection ;
+      - limite connue : un objet à moins de 4 cm est écarté (il traverse
+        la zone de détection avant d'y arriver) ;
+      - seuil de détection : 11 cm, [TO VERIFY] sur la maquette assemblée
+        (U44).
+    Contrôle du serveur : distance_cm hors de ]4 ; 385[ = événement stocké
+    mais marqué non plausible (croquis ancien ou message falsifié).
 
 3.6 smarthouse/carte/ack — accusé de réception des commandes   [VALIDATED]
     Exemple :
@@ -154,6 +206,8 @@ S->C   smarthouse/serveur/commande             texte    1    NON (jamais)
        Le serveur s'abonne à smarthouse/carte/image/#.
        Taille d'un morceau : 1024 octets (le dernier peut être plus court),
          soit 8 morceaux au plus pour les images mesurées (8008 o max).
+         Montage final (Electronics, 22/11) : 3 128 à 3 192 o, soit
+         4 morceaux par image.
          [VALIDATED] en clair (T5a, image factice de 8008 o) : 15 images,
          0 échec, 819 ms en moyenne par image. [VALIDATED] en TLS (T7,
          caméra réelle) : 0 échec.
@@ -162,8 +216,9 @@ S->C   smarthouse/serveur/commande             texte    1    NON (jamais)
          envoi » = 510 à 732 ms par image (images de 2,8 à 3,6 ko, scène
          sombre) ; cadence de 3 s tenue.
        Contrôle de taille côté carte : garde-fou du tampon uniquement
-         (0 ou >= 60 000 o refusés) ; PAS la fourchette 6 000-8 500 o de
-         pins.h, qui dépend de la scène (images de 2,8 ko mesurées).
+         (0 ou >= 60 000 o refusés). Aucune plage de taille attendue :
+         2 800 à 8 000 o selon la scène (constantes TAILLE_IMAGE_* retirées
+         de pins.h depuis la v2).
        Abandon d'une image incomplète par le serveur : dès l'annonce de
          l'image suivante, ou au plus tard 10 s après son annonce.
 
@@ -280,6 +335,10 @@ Règles :
   client sans l'autorité de l'équipe refusé sur 8883.
   [TO VERIFY] mêmes refus depuis un second appareil du réseau (E6).
 - Clés privées (autorité, broker) : jamais dans le dépôt.
+- [PROPOSED] max_packet_size 2048 dans la configuration du broker : tout
+  client qui envoie un paquet plus gros est déconnecté (un morceau d'image
+  fait environ 1 060 o avec son en-tête ; une commande 28 o au plus). Protège
+  la mémoire de la carte (18 767 o libres). À valider par le test T9.
 
 ======================================================================
 6. POINTS À VÉRIFIER AVANT LA VERSION 1.0
@@ -298,7 +357,7 @@ Règles :
 [VALIDATED] Ne JAMAIS appeler WiFi.getTime() dans la boucle principale :
             10 s de blocage à chaque appel tant que le module ignore
             l'heure (T7).
-[TO VERIFY] Unités renvoyées par la bibliothèque du BME680.
+[VALIDATED] Unités du BME680 : Pa et Ω, envoyées brutes en entiers (v0.9).
 [TO VERIFY] Liste des durées comptées (consommations unitaires, Electronics).
 
 Source des mécanismes MQTT : spécification MQTT 3.1.1 (OASIS),
