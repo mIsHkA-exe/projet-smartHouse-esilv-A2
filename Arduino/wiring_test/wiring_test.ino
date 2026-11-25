@@ -28,6 +28,15 @@
   Statut : test de cablage. AUCUN IDENTIFIANT REEL ICI.
 
   ---------------------------------------------------------------------
+  Version : v2 — 25/11/2026
+    - CORRECTION signalee par NetSec : rejet des lectures de butee du
+      HC-SR04 AVANT le calcul de mediane et d'ecart. La v1 laissait
+      passer la butee basse de 3,7 cm, dont l'ecart vaut 0,0 cm : elle
+      aurait declenche une FAUSSE INTRUSION dans le firmware final.
+  Version : v1 — 22/11/2026
+  ---------------------------------------------------------------------
+
+  ---------------------------------------------------------------------
   BUZZER — LIRE AVANT DE PASSER BUZZER_PRESENT A 1
   ---------------------------------------------------------------------
   Le buzzer consomme jusqu'a 30 mA. La limite d'une broche de la UNO R4
@@ -35,13 +44,8 @@
   courant sur R3, N'EST PAS valable ici.
 
   Ne passer BUZZER_PRESENT a 1 QU'APRES avoir monte l'etage a
-  transistor decrit dans pins.h :
-      buzzer + -> 5V
-      buzzer - -> collecteur d'un NPN (BC547, 2N2222, 2N3904, S8050)
-      emetteur -> GND
-      base     -> resistance 1 kOhm -> D2
-  Le transistor est la seule piece encore manquante : la resistance de
-  1 kOhm est disponible.
+  transistor decrit dans pins.h. Le transistor est la seule piece
+  encore manquante : la resistance de 1 kOhm est disponible.
   ---------------------------------------------------------------------
 */
 
@@ -60,25 +64,29 @@
 #define BUZZER_PRESENT  0
 
 /* ----------------------------------------------------------- brochage
-   Ces valeurs recopient Arduino/smart_house/pins.h v3, qui reste LA
+   Ces valeurs recopient Arduino/smart_house/pins.h v4, qui reste LA
    reference. L'IDE Arduino ne sait pas inclure un fichier d'un autre
    dossier de croquis : la duplication est subie, pas choisie. Toute
    divergence avec pins.h est une erreur a corriger ici. */
-const int PIN_CAMERA_CS   = 10;
+const int PIN_CAMERA_CS     = 10;
 const int PIN_ULTRASON_TRIG = 7;
 const int PIN_ULTRASON_ECHO = 8;
-const int PIN_LED_ROUGE   = 4;
+const int PIN_LED_ROUGE     = 4;
 #if BUZZER_PRESENT
-const int PIN_BUZZER      = 2;
+const int PIN_BUZZER        = 2;
 #endif
 
 const uint8_t ADDR_I2C_BME680 = 0x77;
 const uint8_t ADDR_I2C_CAMERA = 0x3C;
 
-const unsigned long ULTRASON_TIMEOUT_US  = 30000UL;
-const unsigned long ULTRASON_DELAI_MS    = 60;
-const float         VITESSE_SON_CM_US    = 0.0343f;
-const uint8_t       ULTRASON_MESURES     = 5;
+const unsigned long ULTRASON_TIMEOUT_US = 30000UL;
+const unsigned long ULTRASON_DELAI_MS   = 60;
+const float         VITESSE_SON_CM_US   = 0.0343f;
+const uint8_t       ULTRASON_MESURES    = 5;
+
+/* Butees du capteur : ce ne sont PAS des mesures (pins.h v4 § 3). */
+const float ULTRASON_ARTEFACT_MIN_CM = 4.0f;
+const float ULTRASON_ARTEFACT_MAX_CM = 385.0f;
 
 Adafruit_BME680 bme;
 ArduCAM myCAM(OV5642, PIN_CAMERA_CS);
@@ -112,9 +120,9 @@ void scanI2C() {
 }
 
 /* ------------------------------------------------------- tri croissant */
-void trier(unsigned long t[], uint8_t n) {
+void trier(float t[], uint8_t n) {
   for (uint8_t i = 1; i < n; i++) {
-    unsigned long v = t[i];
+    float v = t[i];
     int8_t j = i - 1;
     while (j >= 0 && t[j] > v) {
       t[j + 1] = t[j];
@@ -231,36 +239,72 @@ void loop() {
     Serial.println(F("echec de lecture"));
   }
 
-  /* --- HC-SR04 : mediane de 5 mesures, avec l'ecart -------------------- */
+  /* --- HC-SR04 -------------------------------------------------------- */
+  /* ORDRE IMPOSE (pins.h v4 § 3) :
+       1. ecarter les lectures de butee ;
+       2. mediane et ecart sur ce qui reste ;
+       3. zero lecture retenue = absence de mesure, jamais une
+          detection.
+     Sans l'etape 1, la butee basse de 3,7 cm, qui se repete a
+     l'identique et dont l'ecart vaut donc 0,0 cm, passerait le filtre
+     d'ecart et tomberait sous le seuil de detection. */
   Serial.print(F("[HC-SR04] "));
-  unsigned long durees[ULTRASON_MESURES];
-  uint8_t valides = 0;
+
+  float retenues[ULTRASON_MESURES];
+  uint8_t nRetenues = 0;
+  uint8_t nArtefacts = 0;
+  uint8_t nSansEcho  = 0;
 
   for (uint8_t i = 0; i < ULTRASON_MESURES; i++) {
     unsigned long d = mesurerDureeUs();
-    if (d > 0) {
-      durees[valides] = d;
-      valides++;
+
+    if (d == 0) {
+      nSansEcho++;
+    } else {
+      float cm = d * VITESSE_SON_CM_US / 2.0;
+      if (cm < ULTRASON_ARTEFACT_MIN_CM || cm > ULTRASON_ARTEFACT_MAX_CM) {
+        nArtefacts++;              /* butee : ce n'est pas une mesure */
+      } else {
+        retenues[nRetenues] = cm;
+        nRetenues++;
+      }
     }
     delay(ULTRASON_DELAI_MS);
   }
 
-  if (valides == 0) {
-    Serial.println(F("aucun echo"));
+  if (nRetenues == 0) {
+    Serial.print(F("aucune mesure retenue   ("));
+    Serial.print(nSansEcho);
+    Serial.print(F(" sans echo, "));
+    Serial.print(nArtefacts);
+    Serial.println(F(" butee(s))"));
   } else {
-    trier(durees, valides);
-    float med  = durees[valides / 2]     * VITESSE_SON_CM_US / 2.0;
-    float mini = durees[0]               * VITESSE_SON_CM_US / 2.0;
-    float maxi = durees[valides - 1]     * VITESSE_SON_CM_US / 2.0;
+    trier(retenues, nRetenues);
+    float med  = retenues[nRetenues / 2];
+    float mini = retenues[0];
+    float maxi = retenues[nRetenues - 1];
 
     Serial.print(med, 1);
     Serial.print(F(" cm   ecart "));
     Serial.print(maxi - mini, 1);
-    Serial.print(F(" cm   "));
-    Serial.print(valides);
+    Serial.print(F(" cm   retenues "));
+    Serial.print(nRetenues);
     Serial.print(F("/"));
     Serial.print(ULTRASON_MESURES);
-    if (valides < 3) Serial.print(F("  ecart non significatif"));
+
+    if (nArtefacts > 0) {
+      Serial.print(F("   "));
+      Serial.print(nArtefacts);
+      Serial.print(F(" butee(s) ecartee(s)"));
+    }
+    if (nSansEcho > 0) {
+      Serial.print(F("   "));
+      Serial.print(nSansEcho);
+      Serial.print(F(" sans echo"));
+    }
+    if (nRetenues < 3) {
+      Serial.print(F("   ecart non significatif"));
+    }
     Serial.println();
   }
 
@@ -292,9 +336,8 @@ void loop() {
   }
 
   /* --- LED rouge : trois clignotements --------------------------------- */
-  /* Verification de cablage seulement : la LED doit s'allumer trois fois.
-     Si elle reste eteinte, verifier le sens de la LED (patte longue =
-     anode, cote resistance) et la resistance de 1 kOhm. */
+  /* Verification de cablage seulement. Si elle reste eteinte, verifier
+     le sens de la LED (patte longue = anode, cote resistance). */
   Serial.print(F("[LED    ] trois clignotements... "));
   for (uint8_t i = 0; i < 3; i++) {
     digitalWrite(PIN_LED_ROUGE, HIGH);
