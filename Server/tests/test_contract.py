@@ -7,7 +7,6 @@ import unittest
 
 from smarthouse import contract as c
 
-
 class ParseBoardMessageTest(unittest.TestCase):
     def test_connection(self):
         msg = c.parse_board_message(c.TOPIC_CONNECTION, b'{"en_ligne": true}')
@@ -21,7 +20,7 @@ class ParseBoardMessageTest(unittest.TestCase):
         self.assertEqual(msg, c.StateMsg(c.Alarm.ALERT, True, True, False))
 
     def test_state_v07_field_is_ignored(self):
-        # led_temp was removed in v0.8: an extra key must not break parsing.
+
         payload = (b'{"alarme": "latent", "buzzer": false, "led_rouge": false,'
                    b' "diffusion": false, "led_temp": "verte"}')
         self.assertEqual(c.parse_board_message(c.TOPIC_STATE, payload).alarm, c.Alarm.LATENT)
@@ -34,7 +33,7 @@ class ParseBoardMessageTest(unittest.TestCase):
         self.assertAlmostEqual(msg.temperature, 21.4)
         self.assertAlmostEqual(msg.humidity, 45.2)
         self.assertAlmostEqual(msg.pressure, 1013.2)
-        self.assertIsInstance(msg.gas, float)   # integer JSON accepted as number
+        self.assertIsInstance(msg.gas, float)
 
     def test_durations(self):
         payload = b'{"depuis": 3600000, "buzzer": 1200, "led_rouge": 1200, "camera": 4500}'
@@ -60,7 +59,7 @@ class ParseBoardMessageTest(unittest.TestCase):
         msg = c.parse_board_message(c.TOPIC_IMAGE_ANNOUNCE,
                                     b'{"img": 3, "taille": 7412, "morceaux": 8}')
         self.assertEqual(msg, c.ImageAnnounceMsg(3, 7412, 8))
-        # Final assembly: 3 128 to 3 192 bytes -> 4 chunks.
+
         msg = c.parse_board_message(c.TOPIC_IMAGE_ANNOUNCE,
                                     b'{"img": 1, "taille": 3192, "morceaux": 4}')
         self.assertEqual(msg.chunks, 4)
@@ -68,7 +67,6 @@ class ParseBoardMessageTest(unittest.TestCase):
     def test_image_chunk(self):
         msg = c.parse_board_message("smarthouse/carte/image/3/7", b"\xff" * 244)
         self.assertEqual((msg.image_num, msg.index, len(msg.data)), (3, 7, 244))
-
 
 class RejectTest(unittest.TestCase):
     """Invalid messages raise ContractError (they are ignored, never stored)."""
@@ -124,7 +122,6 @@ class RejectTest(unittest.TestCase):
         self.assertRejected("smarthouse/carte/image/0/0", b"x")
         self.assertRejected("smarthouse/carte/image/abc/0", b"x")
 
-
 class FormatCommandTest(unittest.TestCase):
     def test_words(self):
         self.assertEqual(c.format_command(c.Command.REARM, 3), b"REARMER 3")
@@ -138,7 +135,6 @@ class FormatCommandTest(unittest.TestCase):
             c.format_command(c.Command.ALERT, 2**32)
         with self.assertRaises(c.ContractError):
             c.format_command("REARMER", 1)
-
 
 if __name__ == "__main__":
     unittest.main()

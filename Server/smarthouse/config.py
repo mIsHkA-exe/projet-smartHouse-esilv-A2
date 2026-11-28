@@ -13,44 +13,34 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-# Server/ folder (this file is Server/smarthouse/config.py).
 SERVER_DIR = Path(__file__).resolve().parent.parent
 ENV_FILE = SERVER_DIR / ".env"
 
-# --- Temperature alert (P02, validated 22/11/2026) --------------------
-TEMP_SETPOINT_DEFAULT_C = 20.0   # adjustable in the dashboard
+TEMP_SETPOINT_DEFAULT_C = 20.0
 TEMP_SETPOINT_MIN_C = 10.0
 TEMP_SETPOINT_MAX_C = 30.0
-TEMP_TOLERANCE_C = 2.0           # alert outside setpoint +/- tolerance
-TEMP_HYSTERESIS_C = 0.5          # alert cleared 0.5 degC inside the band
+TEMP_TOLERANCE_C = 2.0
+TEMP_HYSTERESIS_C = 0.5
 
-# --- Retention (validated 22/11/2026) --------------------------------
-DATA_RETENTION_DAYS = 30         # measurements, durations, states, alerts, logs
-IMAGE_RETENTION_DAYS = 7         # encrypted images (sync-netsec-v10)
+DATA_RETENTION_DAYS = 30
+IMAGE_RETENTION_DAYS = 7
 
-# --- Board behaviour (contract v0.8) ---------------------------------
-MEASUREMENT_PERIOD_S = 15        # board sends measurements every 15 s
+MEASUREMENT_PERIOD_S = 15
 DURATIONS_PERIOD_S = 60
-# Gas resistance is not usable until the BME680 has warmed up.
-# "Several minutes" according to Electronics: 5 min is TO VERIFY.
+
 GAS_WARMUP_S = 300
-GAS_WARMUP_SEQ = GAS_WARMUP_S // MEASUREMENT_PERIOD_S   # seq >= 20
+GAS_WARMUP_SEQ = GAS_WARMUP_S // MEASUREMENT_PERIOD_S
 
-# --- Images (contract v0.8 section 3.7) ------------------------------
-STREAM_MAX_S = 60                # server sends ARRETER_DIFFUSION after 60 s
-IMAGE_ABANDON_S = 10             # incomplete image dropped 10 s after announce
+STREAM_MAX_S = 60
+IMAGE_ABANDON_S = 10
 
-# --- MQTT (contract v0.8 section 5) ----------------------------------
 MQTT_CLIENT_ID = "smarthouse-serveur"
 MQTT_KEEPALIVE_S = 60
 
-# --- Dashboard -------------------------------------------------------
 DASHBOARD_PORT = 8443
-
 
 class ConfigError(RuntimeError):
     """Missing or invalid configuration value."""
-
 
 @dataclass(frozen=True)
 class Settings:
@@ -80,20 +70,18 @@ class Settings:
     def https_enabled(self) -> bool:
         return self.https_certfile is not None and self.https_keyfile is not None
 
-    def __repr__(self) -> str:  # never print secrets in logs
+    def __repr__(self) -> str:
         return (
             f"Settings(mqtt={self.mqtt_host}:{self.mqtt_port}, "
             f"user={self.mqtt_username}, https={self.https_enabled}, "
             f"data_dir={self.data_dir})"
         )
 
-
 def _required(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
         raise ConfigError(f"{name} is missing in {ENV_FILE}")
     return value
-
 
 def _optional_path(name: str) -> Path | None:
     value = os.environ.get(name, "").strip()
@@ -104,7 +92,6 @@ def _optional_path(name: str) -> Path | None:
         raise ConfigError(f"{name}: file not found: {path}")
     return path
 
-
 def load_settings(env_file: Path = ENV_FILE) -> Settings:
     """Read Server/.env (if present) and return the settings.
 
@@ -112,7 +99,7 @@ def load_settings(env_file: Path = ENV_FILE) -> Settings:
     """
     try:
         from dotenv import load_dotenv
-    except ImportError as exc:  # pragma: no cover - checked at install
+    except ImportError as exc:
         raise ConfigError("python-dotenv is not installed") from exc
     load_dotenv(env_file, override=False)
 

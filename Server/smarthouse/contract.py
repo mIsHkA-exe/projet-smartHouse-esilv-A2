@@ -20,7 +20,6 @@ from typing import Union
 
 CONTRACT_VERSION = "0.8"
 
-# --- Topics (contract section 2) --------------------------------------
 ROOT = "smarthouse"
 TOPIC_CONNECTION = f"{ROOT}/carte/connexion"
 TOPIC_STATE = f"{ROOT}/carte/etat"
@@ -31,30 +30,24 @@ TOPIC_ACK = f"{ROOT}/carte/ack"
 TOPIC_IMAGE_ANNOUNCE = f"{ROOT}/carte/image/annonce"
 TOPIC_COMMAND = f"{ROOT}/serveur/commande"
 
-# The server subscribes to everything the board publishes.
 SUBSCRIPTION = f"{ROOT}/carte/#"
 SUBSCRIPTION_QOS = 1
-COMMAND_QOS = 1            # commands are NEVER retained (contract section 4)
+COMMAND_QOS = 1
 
 _IMAGE_CHUNK_RE = re.compile(rf"^{ROOT}/carte/image/(\d{{1,9}})/(\d{{1,4}})$")
 
-# --- Limits (contract section 3.7) ------------------------------------
 CHUNK_SIZE = 1024
-MAX_IMAGE_BYTES = 59_999                      # board refuses 0 or >= 60 000 bytes
+MAX_IMAGE_BYTES = 59_999
 MAX_CHUNKS = math.ceil(MAX_IMAGE_BYTES / CHUNK_SIZE)
-MAX_COMMAND_ID = 4_294_967_295                # unsigned long on the board
-
+MAX_COMMAND_ID = 4_294_967_295
 
 class ContractError(ValueError):
     """Message that does not follow the contract."""
 
-
-# --- Enumerations: English names, French wire values -----------------
 class Alarm(str, Enum):
     LATENT = "latent"
     INTRUSION = "intrusion"
     ALERT = "alerte"
-
 
 class Command(str, Enum):
     GET_IMAGES = "OBTENIR"
@@ -63,22 +56,17 @@ class Command(str, Enum):
     STOP_BUZZER = "STOP_BUZZER"
     REARM = "REARMER"
 
-
 class AckResult(str, Enum):
     OK = "ok"
     REFUSED = "refuse"
     UNKNOWN = "inconnu"
 
-
 class EventType(str, Enum):
     INTRUSION = "intrusion"
 
-
-# --- Decoded messages -------------------------------------------------
 @dataclass(frozen=True)
 class ConnectionMsg:
     online: bool
-
 
 @dataclass(frozen=True)
 class StateMsg:
@@ -86,7 +74,6 @@ class StateMsg:
     buzzer: bool
     red_led: bool
     streaming: bool
-
 
 @dataclass(frozen=True)
 class MeasurementMsg:
@@ -96,7 +83,6 @@ class MeasurementMsg:
     pressure: float
     gas: float
 
-
 @dataclass(frozen=True)
 class DurationsMsg:
     since_ms: int
@@ -104,27 +90,23 @@ class DurationsMsg:
     red_led_ms: int
     camera_ms: int
 
-
 @dataclass(frozen=True)
 class EventMsg:
     seq: int
     type: EventType
     distance_cm: float
 
-
 @dataclass(frozen=True)
 class AckMsg:
-    id: int              # 0 = command without a valid id
-    command: str         # word as received by the board ("" if invalid)
+    id: int
+    command: str
     result: AckResult
-
 
 @dataclass(frozen=True)
 class ImageAnnounceMsg:
     image_num: int
-    sent_size: int       # bytes sent, JPEG + possible padding (contract v0.6)
+    sent_size: int
     chunks: int
-
 
 @dataclass(frozen=True)
 class ImageChunkMsg:
@@ -132,14 +114,11 @@ class ImageChunkMsg:
     index: int
     data: bytes
 
-
 BoardMessage = Union[
     ConnectionMsg, StateMsg, MeasurementMsg, DurationsMsg, EventMsg,
     AckMsg, ImageAnnounceMsg, ImageChunkMsg,
 ]
 
-
-# --- Field helpers ----------------------------------------------------
 def _json_object(payload: bytes) -> dict:
     try:
         obj = json.loads(payload.decode("utf-8"))
@@ -149,19 +128,16 @@ def _json_object(payload: bytes) -> dict:
         raise ContractError("JSON payload is not an object")
     return obj
 
-
 def _get(obj: dict, key: str) -> object:
     if key not in obj:
         raise ContractError(f"missing field {key!r}")
     return obj[key]
-
 
 def _bool(obj: dict, key: str) -> bool:
     value = _get(obj, key)
     if not isinstance(value, bool):
         raise ContractError(f"{key!r} must be true/false")
     return value
-
 
 def _int(obj: dict, key: str, minimum: int = 0, maximum: int | None = None) -> int:
     value = _get(obj, key)
@@ -170,7 +146,6 @@ def _int(obj: dict, key: str, minimum: int = 0, maximum: int | None = None) -> i
     if value < minimum or (maximum is not None and value > maximum):
         raise ContractError(f"{key!r} out of range: {value}")
     return value
-
 
 def _float(obj: dict, key: str) -> float:
     value = _get(obj, key)
@@ -181,7 +156,6 @@ def _float(obj: dict, key: str) -> float:
         raise ContractError(f"{key!r} is not finite")
     return value
 
-
 def _enum(enum_cls: type[Enum], obj: dict, key: str) -> Enum:
     value = _get(obj, key)
     try:
@@ -189,11 +163,8 @@ def _enum(enum_cls: type[Enum], obj: dict, key: str) -> Enum:
     except ValueError as exc:
         raise ContractError(f"{key!r}: unknown value {value!r}") from exc
 
-
-# --- Parsers (French wire keys -> English fields) ---------------------
 def _parse_connection(obj: dict) -> ConnectionMsg:
     return ConnectionMsg(online=_bool(obj, "en_ligne"))
-
 
 def _parse_state(obj: dict) -> StateMsg:
     return StateMsg(
@@ -202,7 +173,6 @@ def _parse_state(obj: dict) -> StateMsg:
         red_led=_bool(obj, "led_rouge"),
         streaming=_bool(obj, "diffusion"),
     )
-
 
 def _parse_measurement(obj: dict) -> MeasurementMsg:
     return MeasurementMsg(
@@ -213,7 +183,6 @@ def _parse_measurement(obj: dict) -> MeasurementMsg:
         gas=_float(obj, "gaz"),
     )
 
-
 def _parse_durations(obj: dict) -> DurationsMsg:
     return DurationsMsg(
         since_ms=_int(obj, "depuis"),
@@ -222,14 +191,12 @@ def _parse_durations(obj: dict) -> DurationsMsg:
         camera_ms=_int(obj, "camera"),
     )
 
-
 def _parse_event(obj: dict) -> EventMsg:
     return EventMsg(
         seq=_int(obj, "seq"),
         type=_enum(EventType, obj, "type"),
         distance_cm=_float(obj, "distance_cm"),
     )
-
 
 def _parse_ack(obj: dict) -> AckMsg:
     command = _get(obj, "cmd")
@@ -241,14 +208,12 @@ def _parse_ack(obj: dict) -> AckMsg:
         result=_enum(AckResult, obj, "resultat"),
     )
 
-
 def _parse_image_announce(obj: dict) -> ImageAnnounceMsg:
     sent_size = _int(obj, "taille", minimum=1, maximum=MAX_IMAGE_BYTES)
     chunks = _int(obj, "morceaux", minimum=1, maximum=MAX_CHUNKS)
     if chunks != math.ceil(sent_size / CHUNK_SIZE):
         raise ContractError(f"chunk count {chunks} does not match size {sent_size}")
     return ImageAnnounceMsg(image_num=_int(obj, "img", minimum=1), sent_size=sent_size, chunks=chunks)
-
 
 _JSON_PARSERS = {
     TOPIC_CONNECTION: _parse_connection,
@@ -259,7 +224,6 @@ _JSON_PARSERS = {
     TOPIC_ACK: _parse_ack,
     TOPIC_IMAGE_ANNOUNCE: _parse_image_announce,
 }
-
 
 def parse_board_message(topic: str, payload: bytes) -> BoardMessage:
     """Decode one message published by the board.
@@ -280,7 +244,6 @@ def parse_board_message(topic: str, payload: bytes) -> BoardMessage:
         return ImageChunkMsg(image_num=image_num, index=index, data=bytes(payload))
 
     raise ContractError(f"unknown topic: {topic}")
-
 
 def format_command(command: Command, command_id: int) -> bytes:
     """Build a command payload: 'WORD ID' (contract section 4)."""

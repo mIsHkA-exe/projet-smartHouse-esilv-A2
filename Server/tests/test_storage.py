@@ -12,8 +12,7 @@ from pathlib import Path
 from smarthouse import contract as c
 from smarthouse import storage as s
 
-T0 = 1_795_000_000_000   # fixed time (ms UTC) for reproducible tests
-
+T0 = 1_795_000_000_000
 
 class StorageTest(unittest.TestCase):
     def setUp(self):
@@ -67,7 +66,7 @@ class StorageTest(unittest.TestCase):
         first = self.db.create_command("REARMER", "admin", T0)
         second = self.db.create_command("OBTENIR", "admin", T0)
         self.assertEqual(second, first + 1)
-        # Even after a purge of every command, the counter goes on.
+
         self.db.purge(T0 + 31 * s.DAY_MS, retention_days=30)
         self.assertIsNone(self.db.get_command(second))
         third = self.db.create_command("ALERTER", "admin", T0 + 31 * s.DAY_MS)
@@ -76,7 +75,7 @@ class StorageTest(unittest.TestCase):
     def test_command_result_first_ack_only(self):
         cid = self.db.create_command("REARMER", "admin", T0)
         self.assertTrue(self.db.set_command_result(cid, "ok", T0 + 100))
-        # Duplicate ack (QoS 1) is ignored.
+
         self.assertFalse(self.db.set_command_result(cid, "refuse", T0 + 200))
         row = self.db.get_command(cid)
         self.assertEqual((row["result"], row["ack_at"]), ("ok", T0 + 100))
@@ -118,9 +117,9 @@ class StorageTest(unittest.TestCase):
         for at in (old, recent):
             self.db.add_connection(True, at)
             self.db.log_access("x", s.ACCESS_SUCCESS, at)
-        self.db.open_alert(s.ALERT_BOARD_OFFLINE, old)           # still open: kept
+        self.db.open_alert(s.ALERT_BOARD_OFFLINE, old)
         self.db.open_alert(s.ALERT_TEMPERATURE_LOW, old)
-        self.db.close_alert(s.ALERT_TEMPERATURE_LOW, old + 1)    # closed long ago: purged
+        self.db.close_alert(s.ALERT_TEMPERATURE_LOW, old + 1)
         deleted = self.db.purge(now, retention_days=30)
         self.assertEqual(deleted["connections"], 1)
         self.assertEqual(deleted["access_log"], 1)
@@ -136,7 +135,7 @@ class StorageTest(unittest.TestCase):
                 for i in range(200):
                     self.db.add_measurement(c.MeasurementMsg(i, 20.0, 40.0, 1000.0, 10.0),
                                             i >= 20, T0 + i)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 errors.append(exc)
             finally:
                 self.db.close()
@@ -145,7 +144,7 @@ class StorageTest(unittest.TestCase):
             try:
                 for _ in range(200):
                     self.db.latest_measurement()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 errors.append(exc)
             finally:
                 self.db.close()
@@ -157,7 +156,6 @@ class StorageTest(unittest.TestCase):
             t.join()
         self.assertEqual(errors, [])
         self.assertEqual(len(self.db.measurements_between(T0, T0 + 1000)), 200)
-
 
 if __name__ == "__main__":
     unittest.main()

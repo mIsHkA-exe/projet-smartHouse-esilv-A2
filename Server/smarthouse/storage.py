@@ -102,18 +102,14 @@ CREATE TABLE IF NOT EXISTS access_log (
 );
 """
 
-# Alert types (alerts.type).
 ALERT_TEMPERATURE_HIGH = "temperature_high"
 ALERT_TEMPERATURE_LOW = "temperature_low"
 ALERT_BOARD_OFFLINE = "board_offline"
 
-# Access results (access_log.result).
 ACCESS_SUCCESS = "success"
 ACCESS_FAILURE = "failure"
 ACCESS_BLOCKED = "blocked"
 
-# Tables purged after DATA_RETENTION_DAYS, with their time column.
-# Images are purged separately (their encrypted file must be deleted first).
 _PURGEABLE = {
     "connections": "received_at",
     "states": "received_at",
@@ -124,11 +120,9 @@ _PURGEABLE = {
     "access_log": "at",
 }
 
-
 def now_ms() -> int:
     """Current time, milliseconds UTC since 1970."""
     return time.time_ns() // 1_000_000
-
 
 class Storage:
     """Access to the database; safe to share between threads."""
@@ -139,7 +133,6 @@ class Storage:
         self._local = threading.local()
         self._init_schema()
 
-    # --- connections ----------------------------------------------------
     def _connection(self) -> sqlite3.Connection:
         conn = getattr(self._local, "conn", None)
         if conn is None:
@@ -159,7 +152,7 @@ class Storage:
 
     def _write(self, sql: str, params: tuple = ()) -> int:
         conn = self._connection()
-        with conn:  # commit, or rollback on error
+        with conn:
             cursor = conn.execute(sql, params)
         return cursor.lastrowid
 
@@ -181,7 +174,6 @@ class Storage:
             conn.executescript(_SCHEMA)
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
-    # --- board messages -------------------------------------------------
     def add_connection(self, online: bool, at: int) -> int:
         return self._write(
             "INSERT INTO connections (received_at, online) VALUES (?, ?)", (at, int(online))
@@ -215,7 +207,6 @@ class Storage:
             (at, msg.seq, msg.type.value, msg.distance_cm),
         )
 
-    # --- commands -------------------------------------------------------
     def create_command(self, word: str, sent_by: str, at: int) -> int:
         """Record a command and return its id (the id sent to the board)."""
         return self._write(
@@ -243,7 +234,6 @@ class Storage:
     def recent_commands(self, limit: int = 50) -> list[sqlite3.Row]:
         return self._rows("SELECT * FROM commands ORDER BY id DESC LIMIT ?", (limit,))
 
-    # --- images (kept images only) --------------------------------------
     def add_image(self, image_num: int, sent_size: int, jpeg_size: int,
                   file_path: str, at: int, expires_at: int) -> int:
         return self._write(
@@ -263,7 +253,6 @@ class Storage:
         """Delete the row; the caller deletes the encrypted file first."""
         self._write("DELETE FROM images WHERE id = ?", (image_id,))
 
-    # --- settings -------------------------------------------------------
     def get_setting(self, key: str, default: str | None = None) -> str | None:
         row = self._row("SELECT value FROM settings WHERE key = ?", (key,))
         return default if row is None else row["value"]
@@ -276,7 +265,6 @@ class Storage:
             (key, value, at, updated_by),
         )
 
-    # --- alerts ---------------------------------------------------------
     def open_alert(self, alert_type: str, at: int) -> int:
         """Open an alert unless one of the same type is already open."""
         current = self.current_alert(alert_type)
@@ -305,7 +293,6 @@ class Storage:
     def open_alerts(self) -> list[sqlite3.Row]:
         return self._rows("SELECT * FROM alerts WHERE ended_at IS NULL ORDER BY started_at")
 
-    # --- dashboard access log -------------------------------------------
     def log_access(self, address: str, result: str, at: int) -> int:
         return self._write(
             "INSERT INTO access_log (at, address, result) VALUES (?, ?, ?)",
@@ -319,7 +306,6 @@ class Storage:
         )
         return row[0]
 
-    # --- queries for the dashboard ---------------------------------------
     def latest_state(self) -> sqlite3.Row | None:
         return self._row("SELECT * FROM states ORDER BY received_at DESC, id DESC LIMIT 1")
 
@@ -344,7 +330,6 @@ class Storage:
     def recent_events(self, limit: int = 50) -> list[sqlite3.Row]:
         return self._rows("SELECT * FROM events ORDER BY received_at DESC LIMIT ?", (limit,))
 
-    # --- retention --------------------------------------------------------
     def purge(self, now: int, retention_days: int) -> dict[str, int]:
         """Delete rows older than retention_days (images excluded).
 

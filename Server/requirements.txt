@@ -1,8 +1,3 @@
-# Smart House server — Python 3.14, Windows 11
-# Versions figées par « pip freeze » le 22/11/2026 (39 tests OK).
-# Installation :  .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-# Dépendances directes : nicegui, paho-mqtt, cryptography, python-dotenv
-# (les autres lignes sont leurs dépendances).
 aiofiles==25.1.0
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.5

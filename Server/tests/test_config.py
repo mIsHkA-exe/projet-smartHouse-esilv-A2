@@ -11,7 +11,6 @@ from unittest import mock
 
 from smarthouse import config
 
-# Placeholders only: never real credentials in tests.
 VALID_ENV = {
     "MQTT_HOST": "127.0.0.1",
     "MQTT_PORT": "1883",
@@ -27,7 +26,6 @@ VALID_ENV = {
 }
 
 MISSING_ENV_FILE = Path("does-not-exist.env")
-
 
 class LoadSettingsTest(unittest.TestCase):
     def load(self, **changes):
@@ -64,7 +62,7 @@ class LoadSettingsTest(unittest.TestCase):
             key.write_text("x")
             self.assertTrue(self.load(HTTPS_CERTFILE=str(cert), HTTPS_KEYFILE=str(key)).https_enabled)
             with self.assertRaises(config.ConfigError):
-                self.load(HTTPS_CERTFILE=str(cert))          # key missing
+                self.load(HTTPS_CERTFILE=str(cert))
             with self.assertRaises(config.ConfigError):
                 self.load(HTTPS_CERTFILE=str(cert), HTTPS_KEYFILE=str(Path(tmp, "nope.pem")))
 
@@ -73,7 +71,6 @@ class LoadSettingsTest(unittest.TestCase):
         self.assertLess(config.TEMP_SETPOINT_MIN_C, config.TEMP_SETPOINT_DEFAULT_C)
         self.assertLess(config.TEMP_SETPOINT_DEFAULT_C, config.TEMP_SETPOINT_MAX_C)
         self.assertLess(config.TEMP_HYSTERESIS_C, config.TEMP_TOLERANCE_C)
-
 
 if __name__ == "__main__":
     unittest.main()
