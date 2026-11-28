@@ -1,51 +1,3 @@
-/*
- * Smart House — tests T2 à T7 : MQTT carte <-> broker du PC
- * Chemin : Arduino/mqtt_test/mqtt_test.ino (branche dev/Arduino)
- * Responsable : NetSec
- * Version : v5.5 (contrat MQTT v0.8 : champ led_temp retiré de l'état,
- *                LED RGB retirée, D41 ; aucun autre changement)
- *   v5.4 : mesure de la mémoire libre.
- *   v5.3 : diagnostic de l'heure retiré ; mesure des durées conservée.
- *   v5.2 : mesure des durées -> WiFi.getTime() bloque 10 s à chaque appel
- *          tant que le module ne connaît pas l'heure (toujours 0).
- *          NE JAMAIS l'appeler dans la boucle principale (D16).
- *
- * T6 (ce test) : la carte se connecte au broker en TLS (WiFiSSLClient de
- *   WiFiS3) et vérifie son certificat avec le certificat de l'autorité de
- *   TEST (SECRET_CA_CERT dans arduino_secrets.h, setCACert).
- *   Test négatif : avec le certificat d'une AUTRE autorité, la connexion
- *   doit ÉCHOUER.
- * T7 : même croquis ; mesure des images en TLS (OBTENIR).
- * Tout le reste est inchangé depuis la v4 (T5b validé en clair).
- *
- * Validé en T2-T5a (en clair) : partage de connexion, compte de test,
- *   testament, QoS 1, keep-alive 15 s, commandes / accusés / doublons,
- *   état retenu, envoi binaire (image factice 8008 o en 819 ms).
- *
- * T5b (ce test) : quand la diffusion est active (OBTENIR), une image
- *   réelle toutes les 3 s :
- *   1. capture JPEG 320x240 (séquence ArduCAM d'Electronics,
- *      Arduino/arducam_capture/arducam_capture.ino, reprise à l'identique) ;
- *   2. UNE seule lecture du tampon de la caméra, par blocs de 1024 o :
- *      recherche de FF D8, annonce JSON (taille = octets envoyés,
- *      remplissage compris — contrat v0.6 § 3.7), puis morceaux binaires ;
- *   3. entre deux morceaux, la caméra est libérée (CS haut) le temps de
- *      l'envoi, puis la lecture reprend (méthode des exemples Wi-Fi
- *      ArduCAM — À VÉRIFIER sur cette carte : c'est l'objet de T5b).
- *   La carte ne garde jamais plus d'un morceau (1024 o) en mémoire.
- *
- * Prérequis caméra (Arduino/readme.md § 2.3) : bibliothèque ArduCAM avec
- *   les deux correctifs Renesas et #define OV5642_MINI_5MP_PLUS dans
- *   memorysaver.h.
- * Vie privée : orienter la caméra vers un objet, personne dans le champ.
- *   Ce croquis n'enregistre aucune image.
- *
- * Connexion CHIFFRÉE (port 8883). Le port 1883 n'est plus joignable
- *   depuis le réseau (réservé à la machine du broker).
- * Identifiants : uniquement dans arduino_secrets.h (jamais commité).
- * Pas de while (!Serial).
- */
-
 #include <Wire.h>
 #include <SPI.h>
 #include <ArduCAM.h>
@@ -53,15 +5,14 @@
 #include <WiFiS3.h>
 #include <ArduinoMqttClient.h>
 #include "arduino_secrets.h"
-#include <unistd.h>   // sbrk() : mesure de la mémoire libre (T7 partie 2)
+#include <unistd.h>
 
 #if !(defined OV5642_MINI_5MP_PLUS)
   #error "Decommenter #define OV5642_MINI_5MP_PLUS dans memorysaver.h"
 #endif
 
-// --- Paramètres réseau -------------------------------------------------
-const uint16_t BROKER_PORT = 8883;                 // MQTT sur TLS (contrat § 5)
-const char CLIENT_ID[] = "smarthouse-carte";       // contrat § 5
+const uint16_t BROKER_PORT = 8883;
+const char CLIENT_ID[] = "smarthouse-carte";
 
 const char TOPIC_CONNEXION[] = "smarthouse/carte/connexion";
 const char TOPIC_ETAT[]      = "smarthouse/carte/etat";
@@ -72,29 +23,26 @@ const char TOPIC_IMAGE_ANNONCE[] = "smarthouse/carte/image/annonce";
 const char PAYLOAD_EN_LIGNE[]   = "{\"en_ligne\":true}";
 const char PAYLOAD_HORS_LIGNE[] = "{\"en_ligne\":false}";
 
-// Keep-alive : 15 s (contrat). Unité validée en T2 : millisecondes.
 const unsigned long KEEPALIVE_MS = 15000UL;
 
-const unsigned long PERIODE_ETAT_MS        = 10000UL; // affichage série
-const unsigned long PERIODE_RECONNEXION_MS = 5000UL;  // nouvel essai MQTT
+const unsigned long PERIODE_ETAT_MS        = 10000UL;
+const unsigned long PERIODE_RECONNEXION_MS = 5000UL;
 
 const size_t TAILLE_CMD_MAX = 40;
 const size_t TAILLE_MOT_MAX = 20;
 
-// --- Paramètres caméra (copiés de Arduino/smart_house/pins.h v1) -------
-const int CAM_CS = 10;                         // PIN_CAMERA_CS
+const int CAM_CS = 10;
 const unsigned long DELAI_AVANT_CAPTURE_MS = 1000UL;
-const unsigned long CAPTURE_TIMEOUT_MS = 5000UL;   // arducam_capture.ino
-const uint32_t TAILLE_FIFO_MAX = 60000UL;          // garde-fou arducam_capture.ino
+const unsigned long CAPTURE_TIMEOUT_MS = 5000UL;
+const uint32_t TAILLE_FIFO_MAX = 60000UL;
 
-// --- Images (contrat § 3.7) ---------------------------------------------
-const size_t TAILLE_MORCEAU = 1024;            // validé en T5a (en clair)
-const unsigned long CADENCE_IMAGE_MS = 3000UL; // 1 image toutes les 3 s
+const size_t TAILLE_MORCEAU = 1024;
+const unsigned long CADENCE_IMAGE_MS = 3000UL;
 
 ArduCAM myCAM(OV5642, CAM_CS);
 bool cameraOk = false;
 
-uint8_t tamponMorceau[TAILLE_MORCEAU];         // un seul morceau en mémoire
+uint8_t tamponMorceau[TAILLE_MORCEAU];
 unsigned long numeroImage = 0;
 unsigned long dernierEnvoiImage = 0;
 unsigned long nbImagesEnvoyees = 0;
@@ -103,32 +51,26 @@ unsigned long dureeMaxImageMs = 0;
 unsigned long dureeTotaleImagesMs = 0;
 unsigned long dureeMaxCaptureMs = 0;
 
-// --- État simulé (contrat § 3.2) --------------------------------------
 enum Alarme { LATENT, INTRUSION, ALERTE };
 Alarme alarme = LATENT;
 bool buzzer = false;
 bool ledRouge = false;
 bool diffusion = false;
 
-unsigned long dernierIdTraite = 0;       // 0 = aucune commande depuis le démarrage
-const char* dernierResultat = "ok";      // résultat de la commande dernierIdTraite
+unsigned long dernierIdTraite = 0;
+const char* dernierResultat = "ok";
 
-// --- Réception (remplie dans le rappel, traitée dans loop) -------------
 char commandeRecue[TAILLE_CMD_MAX + 1];
 bool commandeEnAttente = false;
 bool commandeTropLongue = false;
 
-// --- Objets réseau -----------------------------------------------------
-WiFiSSLClient sslClient;          // TLS : vérifie le certificat du broker
+WiFiSSLClient sslClient;
 MqttClient mqttClient(sslClient);
 
 unsigned long dernierEtat = 0;
 unsigned long dernierEssaiMqtt = 0;
 unsigned long nbEchecsMqtt = 0;
 
-// =======================================================================
-// Outils
-// =======================================================================
 const char* nomAlarme(Alarme a) {
   switch (a) {
     case LATENT:    return "latent";
@@ -147,20 +89,19 @@ void publierEtat() {
            buzzer ? "true" : "false",
            ledRouge ? "true" : "false",
            diffusion ? "true" : "false");
-  mqttClient.beginMessage(TOPIC_ETAT, true /* retenu */, 1 /* QoS */);
+  mqttClient.beginMessage(TOPIC_ETAT, true  , 1  );
   mqttClient.print(json);
   mqttClient.endMessage();
   Serial.print(F("[ETAT->] "));
   Serial.println(json);
 }
 
-// « mot » ne contient que A-Z et _ (vérifié avant l'appel).
 void publierAck(unsigned long id, const char* mot, const char* resultat) {
   char json[96];
   snprintf(json, sizeof(json),
            "{\"id\":%lu,\"cmd\":\"%s\",\"resultat\":\"%s\"}",
            id, mot, resultat);
-  mqttClient.beginMessage(TOPIC_ACK, false /* non retenu */, 1 /* QoS */);
+  mqttClient.beginMessage(TOPIC_ACK, false  , 1  );
   mqttClient.print(json);
   mqttClient.endMessage();
   Serial.print(F("[ACK->] "));
@@ -189,14 +130,11 @@ bool lireId(const char* texte, unsigned long* id) {
   return true;
 }
 
-// =======================================================================
-// Logique des commandes (contrat § 4) — actions SIMULÉES
-// =======================================================================
 const char* executer(const char* mot, bool* change) {
   *change = false;
 
   if (strcmp(mot, "OBTENIR") == 0) {
-    if (alarme == ALERTE && buzzer) return "refuse";   // D16 : jamais caméra + buzzer
+    if (alarme == ALERTE && buzzer) return "refuse";
     if (!diffusion) { diffusion = true; *change = true;
       Serial.println(F("[ACTION] Diffusion d'images démarrée")); }
     return "ok";
@@ -208,7 +146,7 @@ const char* executer(const char* mot, bool* change) {
   }
   if (strcmp(mot, "ALERTER") == 0) {
     if (alarme != ALERTE) {
-      diffusion = false;                 // la caméra s'arrête avant le buzzer (D16)
+      diffusion = false;
       alarme = ALERTE; buzzer = true; ledRouge = true; *change = true;
       Serial.println(F("[ACTION] Diffusion arrêtée, buzzer + LED rouge (simulés)"));
     }
@@ -226,7 +164,7 @@ const char* executer(const char* mot, bool* change) {
     }
     return "ok";
   }
-  return nullptr;   // mot inconnu
+  return nullptr;
 }
 
 void traiterCommande() {
@@ -253,7 +191,6 @@ void traiterCommande() {
     return;
   }
 
-  // Doublon (contrat § 4) : ID égal au dernier -> même résultat ; plus ancien -> "ok".
   if (id <= dernierIdTraite) {
     const char* res = (id == dernierIdTraite) ? dernierResultat : "ok";
     Serial.print(F("[CMD] Doublon ignoré, ID "));
@@ -272,15 +209,10 @@ void traiterCommande() {
   if (change) publierEtat();
 }
 
-// =======================================================================
-// MESURE T7 partie 2 : mémoire libre (octets) entre le sommet de la zone
-// dynamique (sbrk(0)) et la pile. APPROXIMATIVE : les blocs libérés à
-// l'intérieur de la zone dynamique ne sont pas comptés.
-// =======================================================================
 long memoireMin = 1000000L;
 
 long memoireLibre() {
-  char repere;                                   // variable sur la pile
+  char repere;
   return (long)(&repere - (char*)sbrk(0));
 }
 
@@ -319,9 +251,6 @@ void surMessage(int taille) {
   commandeEnAttente = true;
 }
 
-// =======================================================================
-// Caméra — séquence reprise de Arduino/arducam_capture/arducam_capture.ino
-// =======================================================================
 bool initialiserCamera() {
   pinMode(CAM_CS, OUTPUT);
   digitalWrite(CAM_CS, HIGH);
@@ -339,19 +268,18 @@ bool initialiserCamera() {
   myCAM.InitCAM();
   myCAM.write_reg(ARDUCHIP_TIM, VSYNC_LEVEL_MASK);
   myCAM.OV5642_set_JPEG_size(OV5642_320x240);
-  delay(DELAI_AVANT_CAPTURE_MS);   // exposition automatique, une seule fois
+  delay(DELAI_AVANT_CAPTURE_MS);
   myCAM.clear_fifo_flag();
   Serial.println(F("[CAM] Caméra prête (JPEG 320x240)."));
   return true;
 }
 
-// Lit « n » octets du tampon de la caméra (lecture en rafale reprise).
 void lireTampon(uint8_t* dest, size_t n) {
   myCAM.CS_LOW();
   myCAM.set_fifo_burst();
   for (size_t i = 0; i < n; i++) {
     dest[i] = SPI.transfer(0x00);
-    delayMicroseconds(15);          // comme arducam_capture.ino
+    delayMicroseconds(15);
   }
   myCAM.CS_HIGH();
 }
@@ -361,7 +289,6 @@ void terminerLecture() {
   myCAM.clear_fifo_flag();
 }
 
-// Capture + UNE lecture du tampon + envoi (annonce puis morceaux).
 bool envoyerImageCamera() {
   if (!cameraOk) {
     Serial.println(F("[IMG] Caméra non initialisée"));
@@ -369,7 +296,6 @@ bool envoyerImageCamera() {
   }
   const unsigned long debut = millis();
 
-  // 1. Capture.
   myCAM.flush_fifo();
   myCAM.clear_fifo_flag();
   myCAM.start_capture();
@@ -391,7 +317,6 @@ bool envoyerImageCamera() {
   }
   const uint32_t tailleTampon = restants;
 
-  // 2. Recherche du début du JPEG (FF D8), comme arducam_capture.ino.
   myCAM.CS_LOW();
   myCAM.set_fifo_burst();
   uint8_t octet = SPI.transfer(0x00);
@@ -412,7 +337,6 @@ bool envoyerImageCamera() {
     return false;
   }
 
-  // 3. Annonce : taille = octets envoyés (FF D8 + reste du tampon), contrat v0.6.
   const uint32_t tailleEnvoyee = restants + 2;
   const uint32_t nbMorceaux = (tailleEnvoyee + TAILLE_MORCEAU - 1) / TAILLE_MORCEAU;
   numeroImage++;
@@ -428,10 +352,9 @@ bool envoyerImageCamera() {
     return false;
   }
 
-  // 4. Morceaux : lecture d'un bloc, caméra libérée, envoi, reprise.
   char topic[48];
   uint32_t aEnvoyer = tailleEnvoyee;
-  long finJpeg = -1;                 // position de FF D9 (diagnostic)
+  long finJpeg = -1;
   uint32_t position = 0;
   uint8_t dernier = 0;
 
@@ -439,14 +362,13 @@ bool envoyerImageCamera() {
     size_t taille = (aEnvoyer < TAILLE_MORCEAU) ? aEnvoyer : TAILLE_MORCEAU;
     size_t debutLecture = 0;
 
-    if (n == 0) {                     // FF D8 déjà lus
+    if (n == 0) {
       tamponMorceau[0] = 0xFF;
       tamponMorceau[1] = 0xD8;
       debutLecture = 2;
     }
     lireTampon(tamponMorceau + debutLecture, taille - debutLecture);
 
-    // Repère la fin réelle du JPEG (premier FF D9), pour le rapport.
     for (size_t i = 0; i < taille; i++) {
       if (finJpeg < 0 && dernier == 0xFF && tamponMorceau[i] == 0xD9 && position + i >= 2) {
         finJpeg = (long)(position + i + 1);
@@ -471,7 +393,7 @@ bool envoyerImageCamera() {
       terminerLecture();
       return false;
     }
-    noterMemoire();                 // pendant l'envoi d'une image
+    noterMemoire();
     aEnvoyer -= taille;
     position += taille;
   }
@@ -502,11 +424,6 @@ bool envoyerImageCamera() {
   return true;
 }
 
-// =======================================================================
-// Réseau
-// =======================================================================
-
-// --- DIAGNOSTIC T7 : durée maximale (ms) de chaque appel, sur 10 s -----
 unsigned long maxBoucleMs = 0;
 unsigned long maxStatutWifiMs = 0;
 unsigned long maxConnectedMs = 0;
@@ -533,11 +450,10 @@ void afficherDurees() {
   maxPollMs = maxLocalIpMs = 0;
 }
 
-
 void connecterWifi() {
   if (WiFi.status() == WL_NO_MODULE) {
     Serial.println(F("[WIFI] Module Wi-Fi introuvable : arrêt du test."));
-    while (true) { /* erreur matérielle */ }
+    while (true) {   }
   }
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(F("[WIFI] Connexion au réseau : "));
@@ -555,14 +471,13 @@ bool connecterMqtt() {
     return false;
   }
 
-  // Certificat de l'autorité de TEST (rechargé à chaque connexion).
   sslClient.setCACert(SECRET_CA_CERT);
 
   mqttClient.setId(CLIENT_ID);
   mqttClient.setUsernamePassword(SECRET_MQTT_USER, SECRET_MQTT_PASS);
   mqttClient.setKeepAliveInterval(KEEPALIVE_MS);
 
-  mqttClient.beginWill(TOPIC_CONNEXION, true /* retenu */, 1 /* QoS */);
+  mqttClient.beginWill(TOPIC_CONNEXION, true  , 1  );
   mqttClient.print(PAYLOAD_HORS_LIGNE);
   mqttClient.endWill();
 
@@ -571,9 +486,6 @@ bool connecterMqtt() {
   Serial.print(':');
   Serial.println(BROKER_PORT);
 
-  // Connexion par la CHAÎNE d'adresse (et non IPAddress) : c'est la variante
-  // de WiFiSSLClient::connect() qui applique le certificat fourni par
-  // setCACert() (code de WiFiS3). Le résultat est vérifié par le test négatif.
   const unsigned long debutConnexion = millis();
   if (!mqttClient.connect(SECRET_BROKER_IP, BROKER_PORT)) {
     nbEchecsMqtt++;
@@ -586,14 +498,14 @@ bool connecterMqtt() {
   Serial.println(F(" ms)."));
 
   mqttClient.onMessage(surMessage);
-  if (mqttClient.subscribe(TOPIC_COMMANDE, 1 /* QoS */)) {
+  if (mqttClient.subscribe(TOPIC_COMMANDE, 1  )) {
     Serial.print(F("[MQTT] Abonné à "));
     Serial.println(TOPIC_COMMANDE);
   } else {
     Serial.println(F("[MQTT] Échec de l'abonnement aux commandes"));
   }
 
-  mqttClient.beginMessage(TOPIC_CONNEXION, true /* retenu */, 1 /* QoS */);
+  mqttClient.beginMessage(TOPIC_CONNEXION, true  , 1  );
   mqttClient.print(PAYLOAD_EN_LIGNE);
   mqttClient.endMessage();
   publierEtat();
@@ -634,12 +546,9 @@ void afficherEtat() {
   afficherMemoire(F("en fonctionnement"));
 }
 
-// =======================================================================
-// Programme
-// =======================================================================
 void setup() {
   Serial.begin(115200);
-  delay(1500);   // pas de while (!Serial)
+  delay(1500);
   Serial.println(F("=== Smart House — test MQTT v5.5 (TLS, port 8883) ==="));
   afficherMemoire(F("au démarrage (rien d'initialisé)"));
 
@@ -682,9 +591,6 @@ void loop() {
     traiterCommande();
   }
 
-  // T5b : une image réelle toutes les 3 s pendant la diffusion.
-  // Second appel à connected(), seulement pendant une diffusion, comme en
-  // v5.1 (mesuré lui aussi).
   bool mqttOk2 = false;
   if (diffusion) {
     t0 = millis();
@@ -699,9 +605,9 @@ void loop() {
 
   if (maintenant - dernierEtat >= PERIODE_ETAT_MS) {
     dernierEtat = maintenant;
-    afficherEtat();            // affiche aussi les durées (puis les remet à 0)
+    afficherEtat();
   }
 
-  noterMax(&maxBoucleMs, maintenant);   // durée de ce tour de boucle
+  noterMax(&maxBoucleMs, maintenant);
   noterMemoire();
 }

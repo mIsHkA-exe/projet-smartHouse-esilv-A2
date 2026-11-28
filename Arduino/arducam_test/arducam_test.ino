@@ -1,23 +1,3 @@
-/*
-  arducam_test — Smart House
-
-  Objet  : test unitaire de l'Arducam Mini 5MP Plus (B0068, OV5642)
-           sur Arduino UNO R4 WiFi. Aucune capture d'image a ce stade :
-           on verifie seulement que les deux bus repondent.
-  Cablage: CS->D10, MOSI->D11, MISO->D12, SCK->D13, GND->GND, VCC->5V,
-           SDA->A4, SCL->A5. BME680 debranche pendant ce test.
-  Prealab: dans libraries/ArduCAM/memorysaver.h, seule la ligne
-           #define OV5642_MINI_5MP_PLUS doit etre decommentee.
-  Statut : test, pas le firmware final. Aucun identifiant reel ici.
-
-  Le croquis verifie trois choses, dans l'ordre :
-    1. le bus SPI : ecriture puis relecture d'une valeur connue dans le
-       registre de test de l'ArduChip ;
-    2. la version de l'ArduChip ;
-    3. le bus I2C : lecture de l'identifiant du capteur OV5642
-       (doit valoir 0x56 puis 0x42).
-*/
-
 #include <Wire.h>
 #include <SPI.h>
 #include <ArduCAM.h>
@@ -31,10 +11,9 @@ const int CAM_CS = 10;
 
 ArduCAM myCAM(OV5642, CAM_CS);
 
-// ------------------------------------------------------------------- setup
 void setup() {
   Serial.begin(115200);
-  delay(3000);  // USB natif de la R4 : laisse le moniteur se reconnecter
+  delay(3000);
 
   Serial.println(F("=== Test Arducam Mini 5MP Plus - Smart House ==="));
 
@@ -44,7 +23,6 @@ void setup() {
   Wire.begin();
   SPI.begin();
 
-  // --- 1. Bus SPI : ecriture puis relecture d'une valeur connue ---------
   Serial.println(F("\n[1] Test du bus SPI"));
   myCAM.write_reg(ARDUCHIP_TEST1, 0x55);
   delay(10);
@@ -63,14 +41,12 @@ void setup() {
   }
   Serial.println(F("  OK : le bus SPI repond."));
 
-  // --- 2. Version de l'ArduChip ----------------------------------------
   Serial.println(F("\n[2] Version de l'ArduChip"));
   uint8_t version = myCAM.read_reg(ARDUCHIP_REV);
   Serial.print(F("  registre 0x40 = 0x"));
   if (version < 16) Serial.print('0');
   Serial.println(version, HEX);
 
-  // --- 3. Bus I2C : identifiant du capteur OV5642 -----------------------
   Serial.println(F("\n[3] Identifiant du capteur sur le bus I2C"));
   uint8_t vid = 0, pid = 0;
   myCAM.wrSensorReg16_8(0xff, 0x01);
@@ -92,7 +68,6 @@ void setup() {
   }
 }
 
-// -------------------------------------------------------------------- loop
 void loop() {
-  // rien : tout le test est fait une fois au demarrage
+
 }

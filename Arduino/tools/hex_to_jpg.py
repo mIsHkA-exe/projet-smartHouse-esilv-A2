@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 hex_to_jpg — Smart House
 
@@ -22,7 +21,6 @@ from pathlib import Path
 MARQUEUR_DEBUT = "---DEBUT IMAGE---"
 MARQUEUR_FIN = "---FIN IMAGE---"
 
-
 def extraire_bloc(texte: str) -> str:
     """Renvoie la portion situee entre les deux marqueurs."""
     debut = texte.find(MARQUEUR_DEBUT)
@@ -41,7 +39,6 @@ def extraire_bloc(texte: str) -> str:
         )
     return texte[debut:fin]
 
-
 def hex_vers_octets(bloc: str) -> bytes:
     """Convertit le bloc hexadecimal en octets, en ignorant les espaces."""
     propre = re.sub(r"[^0-9A-Fa-f]", "", bloc)
@@ -51,7 +48,6 @@ def hex_vers_octets(bloc: str) -> bytes:
             "une ligne a ete tronquee a la copie."
         )
     return bytes.fromhex(propre)
-
 
 def verifier(donnees: bytes) -> None:
     """Controle les marqueurs qui ouvrent et ferment un fichier JPEG."""
@@ -65,7 +61,6 @@ def verifier(donnees: bytes) -> None:
             "L'image peut etre incomplete.",
             file=sys.stderr,
         )
-
 
 def main() -> int:
     if len(sys.argv) < 2:
@@ -86,7 +81,6 @@ def main() -> int:
     destination.write_bytes(donnees)
     print(f"Image ecrite : {destination} ({len(donnees)} octets)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

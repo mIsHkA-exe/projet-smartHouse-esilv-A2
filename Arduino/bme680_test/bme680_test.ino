@@ -1,27 +1,11 @@
-/*
-  bme680_test — Smart House
-  Chemin dans le depot : firmware/tests/bme680_test/bme680_test.ino
-  (le dossier doit porter le meme nom que le fichier .ino)
-
-  Objet  : test unitaire du BME680 Adafruit sur Arduino UNO R4 WiFi.
-  Cablage: VIN -> 5V, GND -> GND, SDI -> A4 (SDA), SCK -> A5 (SCL).
-           SDO, CS et 3Vo non connectees (mode I2C, adresse 0x77).
-  Statut : test, pas le firmware final. Aucun identifiant reel ici.
-
-  Le croquis fait deux choses dans l'ordre :
-    1. un scan du bus I2C, pour verifier le cablage avant tout dialogue ;
-    2. une lecture des 4 grandeurs toutes les 2 secondes.
-*/
-
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include "Adafruit_BME680.h"
 
-#define BME680_I2C_ADDR 0x77   // marquage au dos de la carte Adafruit
+#define BME680_I2C_ADDR 0x77
 
-Adafruit_BME680 bme;           // I2C par defaut
+Adafruit_BME680 bme;
 
-// ---------------------------------------------------------------- scan I2C
 void scanI2C() {
   Serial.println(F("--- Scan du bus I2C ---"));
   byte trouves = 0;
@@ -42,12 +26,9 @@ void scanI2C() {
   Serial.println();
 }
 
-// ------------------------------------------------------------------- setup
 void setup() {
   Serial.begin(115200);
-  // USB natif sur la R4 : le port disparait puis revient apres televersement.
-  // Un delai fixe laisse au moniteur serie le temps de se reconnecter, et le
-  // programme demarre meme si aucun moniteur n'est ouvert.
+
   delay(3000);
 
   Serial.println(F("=== Test BME680 - Smart House ==="));
@@ -64,19 +45,17 @@ void setup() {
   }
   Serial.println(F("BME680 detecte."));
 
-  // Reglages recommandes par Adafruit pour un usage general
   bme.setTemperatureOversampling(BME680_OS_8X);
   bme.setHumidityOversampling(BME680_OS_2X);
   bme.setPressureOversampling(BME680_OS_4X);
   bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
-  bme.setGasHeater(320, 150);  // 320 degres C pendant 150 ms
+  bme.setGasHeater(320, 150);
 
   Serial.println(F("Note : la resistance de gaz se stabilise apres"));
   Serial.println(F("plusieurs minutes de chauffe. Les premieres"));
   Serial.println(F("valeurs de gaz ne sont pas exploitables.\n"));
 }
 
-// -------------------------------------------------------------------- loop
 void loop() {
   if (!bme.performReading()) {
     Serial.println(F("Echec de lecture."));
