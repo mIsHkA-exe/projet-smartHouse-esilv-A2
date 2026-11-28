@@ -1,6 +1,6 @@
 CONTRAT MQTT — SMART HOUSE
 Fichier : docs/mqtt-topics.txt
-Version : v0.9 — 25/11/2026 — VALIDÉ par l'utilisateur (valeurs marquées
+Version : v0.10 — 28/11/2026 — VALIDÉ par l'utilisateur (valeurs marquées
           [TO VERIFY] à confirmer par mesure avant la v1.0)
           v0.3 : broker Mosquitto renseigné au § 5.
           v0.4 : authentification et accès réseau (TLS) au § 5.
@@ -22,6 +22,12 @@ Version : v0.9 — 25/11/2026 — VALIDÉ par l'utilisateur (valeurs marquées
                  rejet des butées du capteur à ultrasons (§ 3.5) ; règle
                  de chauffe du gaz côté serveur (§ 3.3) ; taille maximale
                  des paquets sur le broker [PROPOSED] (§ 5).
+          v0.10 : voyant LED RGB (D45) : "led_rouge" remplacé par
+                 "voyant" dans l'état (§ 3.2) et par "voyant_vert" /
+                 "voyant_rouge" dans les durées (§ 3.4) ; règle de
+                 clignotement (§ 3.2) ; ALERTER = buzzer seul (§ 4) ;
+                 buzzer commandé par un L293D (D46, § 3.4) ; cycles sans
+                 écho fréquents = état normal (§ 3.5).
 Responsable : NetSec (CODE_REPO.md § 9)
 Règle : toute modification de ce fichier se fait dans la même pull request
 que le code qui l'utilise, côté carte ET côté serveur (CODE_REPO.md § 8).
@@ -85,19 +91,35 @@ S->C   smarthouse/serveur/commande             texte    1    NON (jamais)
 3.2 smarthouse/carte/etat — état fonctionnel courant   [VALIDATED]
     Publié à chaque changement d'état et après chaque connexion.
     Exemple :
-      {"alarme": "latent", "buzzer": false, "led_rouge": false,
+      {"alarme": "latent", "buzzer": false, "voyant": "vert",
        "diffusion": false}
     Champs :
       alarme      "latent"    surveillance active, aucune intrusion (D08)
                   "intrusion" intrusion détectée et notifiée, en attente
                               du choix de l'utilisateur (D11)
-                  "alerte"    ALERTER reçu : buzzer + LED rouge extérieure
+                  "alerte"    ALERTER reçu : buzzer (le voyant est déjà
+                              rouge depuis la détection)
                   Retour à "latent" uniquement par REARMER (D07, D29).
       buzzer      true/false (STOP_BUZZER le passe à false sans changer
                   "alarme")
-      led_rouge   true/false (reste allumée jusqu'à REARMER)
+      voyant      "vert"   vert FIXE, en état "latent"
+                  "rouge"  rouge CLIGNOTANT, en états "intrusion" et
+                           "alerte" ; retour au vert après REARMER
       diffusion   true/false (envoi d'images en cours)
     (v0.7 : champ led_temp — RETIRÉ le 22/11/2026, LED RGB retirée, D41.)
+    (v0.9 : champ led_rouge — RETIRÉ le 28/11/2026, LED rouge simple
+     remplacée par le voyant LED RGB, D45.)
+    [VALIDATED] Voyant (D45, Brain 28/11 ; période choisie par NetSec) :
+      - clignotement à 1 Hz : 500 ms allumé, 500 ms éteint (sous la
+        limite de 3 éclats par seconde, WCAG 2.3.1) ;
+      - NON BLOQUANT : basculer quand millis() - dernier_basculement
+        >= 500, puis dernier_basculement = millis() (jamais += 500 : une
+        boucle lente provoquerait une rafale de basculements) ;
+      - à l'entrée en "intrusion" : rouge allumé tout de suite, cycle
+        remis à zéro ; vert éteint pendant tout le clignotement ;
+      - pendant une diffusion d'images : mise à jour du voyant entre deux
+        morceaux envoyés (une image prend 510 à 730 ms) ;
+      - après REARMER : rouge éteint, vert allumé aussitôt.
 
 3.3 smarthouse/carte/mesures — mesures du BME680   [VALIDATED]
     Exemple :
@@ -140,14 +162,24 @@ S->C   smarthouse/serveur/commande             texte    1    NON (jamais)
     valeur de "depuis" plus petite que la précédente signale un
     redémarrage de la carte.
     Exemple :
-      {"depuis": 3600000, "buzzer": 1200, "led_rouge": 1200,
-       "camera": 4500}
+      {"depuis": 3600000, "buzzer": 0, "voyant_vert": 3540000,
+       "voyant_rouge": 60000, "camera": 4500}
     Fréquence d'envoi : toutes les 60 s.
     (v0.7 : compteur led_rgb — RETIRÉ le 22/11/2026, D41.)
-    Buzzer : broche D2 réservée, NON câblée tant que le transistor manque
-    (pins.h v3) ; le compteur reste dans le contrat. [PROPOSED] il vaut 0
-    tant que le buzzer n'est pas câblé (sinon le serveur estimerait la
-    consommation d'un buzzer absent).
+    (v0.9 : compteur led_rouge — REMPLACÉ le 28/11/2026, D45.)
+    Champs :
+      depuis        temps écoulé depuis le démarrage
+      buzzer        temps où le buzzer sonne
+      voyant_vert   temps en vert fixe
+      voyant_rouge  temps en mode rouge CLIGNOTANT (allumé la moitié de
+                    ce temps : le serveur applique un facteur 0,5 pour
+                    l'estimation de consommation)
+      camera        temps de capture
+    Buzzer (D46) : commandé par un L293D, toujours par un niveau haut sur
+    D2 ; aucune commande ne change. [PROPOSED] le compteur vaut 0 tant que
+    le buzzer n'est pas monté et testé (sinon le serveur estimerait la
+    consommation d'un buzzer absent). [TO VERIFY] (Electronics) tension
+    reçue par le buzzer : la sortie du L293D perd environ 1,2 à 1,4 V.
     [TO VERIFY] Liste des éléments comptés, à aligner sur les
     consommations unitaires fournies par Electronics.
 
@@ -161,7 +193,8 @@ S->C   smarthouse/serveur/commande             texte    1    NON (jamais)
     Règles de détection (firmware, Electronics 01/11 et 22/11) :
       - jamais de décision sur une mesure unique (5 mesures par cycle) ;
       - cycle REJETÉ si l'écart min-max dépasse 2 cm ;
-      - un cycle SANS ÉCHO n'est JAMAIS une détection ;
+      - un cycle SANS ÉCHO n'est JAMAIS une détection ; il est FRÉQUENT
+        et constitue un état normal (capteur validé, Brain 28/11) ;
       - [VALIDATED] v0.9 (Electronics, pins.h v4) : les lectures de butée
         sont écartées AVANT tout calcul : hors de ]4 ; 385[ cm (butée basse
         3,7 cm répétée à l'identique, butée haute 386 à 393 cm) ;
@@ -245,11 +278,12 @@ Topic : smarthouse/serveur/commande — QoS 1 — JAMAIS retenu
   OBTENIR            Obtenir (images)                Démarre la diffusion d'images
   ARRETER_DIFFUSION  Arrêter la diffusion            Arrête la diffusion d'images
   ALERTER            Arrêter et alerter l'intrus     Arrête la diffusion, puis
-                                                     buzzer + LED rouge extérieure
-                                                     (caméra et buzzer jamais
+                                                     buzzer (voyant déjà rouge ;
+                                                     caméra et buzzer jamais
                                                      simultanés, D16)
   STOP_BUZZER        Stop buzzer                     Arrête le buzzer (D06)
-  REARMER            Réarmer                         Retour à l'état latent (D07, D29)
+  REARMER            Réarmer                         Retour à l'état latent,
+                                                     voyant vert (D07, D29, D45)
 
 [VALIDATED] Autorisations :
 
