@@ -19,13 +19,20 @@
     TO VERIFY  connu mais non confirme
 
   ---------------------------------------------------------------------
-  Version : v4 — 25/11/2026
-    - CORRECTION IMPORTANTE, signalee par NetSec : ajout du rejet des
-      lectures de butee du HC-SR04 (§ 3). Sans lui, la butee basse de
-      3,7 cm passait le filtre d'ecart et declenchait une FAUSSE
-      INTRUSION. L'ordre des deux filtres est desormais impose.
+  Version : v7 — 28/11/2026
+    - D33 ABROGEE : il n'y a AUCUNE reaction thermique sur la maquette.
+      La temperature, l'humidite, la pression et la resistance de gaz
+      restent mesurees et transmises au serveur, mais n'ont plus aucun
+      effet local. Les deux blocs « POINT NON TRANCHE » de la v6, qui
+      portaient sur cette question, sont donc RETIRES.
+    - Correction de date : le servomoteur a ete retire le 05/11/2026
+      (D32). La v2 de ce fichier, du 17/11, ne faisait qu'en prendre
+      acte.
+  Version : v6 — 28/11/2026 (D45, LED RGB en voyant d'etat)
+  Version : v5 — 28/11/2026 (LED RGB remise, buzzer via L293D)
+  Version : v4 — 25/11/2026 (rejet des butees du HC-SR04, C20)
   Version : v3 — 22/11/2026 (retrait de la LED RGB)
-  Version : v2 — 17/11/2026 (retrait du servomoteur, D32)
+  Version : v2 — 17/11/2026 (prise en compte de D32 du 05/11)
   Version : v1 — 01/11/2026
   ---------------------------------------------------------------------
 */
@@ -42,8 +49,7 @@
      - logique 5 V
    Alimentation : port USB-C du PC uniquement (D30).        VALIDATED
 
-   CELLULE SOLAIRE (Nedis SOLCH10WT, recue le 22/11) : NON RACCORDEE.
-   Dimensionnement qui le justifie :
+   CELLULE SOLAIRE (Nedis SOLCH10WT) : NON RACCORDEE.
      - panneau   : 3 W, 5,3 V / 0,5 A, soit 500 mA en plein soleil ;
      - besoin    : jusqu'a 640 mA (camera 300 mA + Wi-Fi 340 mA) ;
      - interieur : 1 a 5 % du nominal, soit 5 a 25 mA ;
@@ -54,8 +60,7 @@
 
 /* Courant maximal continu par broche d'entree-sortie, en mA.
    Fiche officielle ABX00087.                              VALIDATED
-   ATTENTION : c'est 8 mA sur la R4, contre 40 mA sur une Uno R3. Les
-   montages « sans transistor » valables sur R3 ne le sont PAS ici. */
+   ATTENTION : c'est 8 mA sur la R4, contre 40 mA sur une Uno R3. */
 #define LIMITE_COURANT_BROCHE_MA   8
 
 /* L'USB natif de la R4 fait disparaitre puis reapparaitre le port apres
@@ -87,7 +92,10 @@
    SDO, CS et 3Vo NON connectees :
      - 3Vo est une SORTIE du regulateur 3,3 V : ne rien y injecter ;
      - SDO est tiree au niveau haut sur la carte, ce qui fixe 0x77 ;
-     - CS est maintenue haute, ce qui force le mode I2C. */
+     - CS est maintenue haute, ce qui force le mode I2C.
+
+   D33 etant abrogee, ces mesures n'ont AUCUN effet sur la maquette :
+   elles sont transmises au serveur et exploitees sur le dashboard. */
 #define ADDR_I2C_BME680            0x77
 
 /* UNITES RENVOYEES PAR LA BIBLIOTHEQUE Adafruit_BME680    VALIDATED
@@ -95,21 +103,22 @@
 
      bme.temperature       degres Celsius
      bme.humidity          pourcentage d'humidite relative
-     bme.pressure          PASCALS        -> diviser par 100 pour hPa
-     bme.gas_resistance    OHMS           -> diviser par 1000 pour kOhm
+     bme.pressure          PASCALS
+     bme.gas_resistance    OHMS
 
-   Exemple reel : bme.pressure = 100464 soit 1004,64 hPa ;
-   bme.gas_resistance = 92250 soit 92,25 kOhm.
+   Exemple reel : bme.pressure = 100464 (soit 1004,64 hPa) ;
+   bme.gas_resistance = 92250 (soit 92,25 kOhm).
 
-   Le LIEU de la conversion (carte ou serveur) releve du contrat MQTT,
-   donc de NetSec. Electronics signale seulement que les valeurs brutes
-   sont des ENTIERS exacts, alors que les valeurs converties sont des
-   flottants arrondis : une conversion faite sur la carte est
-   irreversible cote serveur.
+   >> DECISION NETSEC du 25/11, contrat v0.9 : les valeurs sont
+      transmises BRUTES, sans conversion sur la carte, sous les cles
+      "pression_pa" (entier, Pa) et "gaz_ohm" (entier, Ohm).
+      Les valeurs brutes sont des entiers exacts, alors qu'une
+      conversion faite sur la carte serait irreversible cote serveur.
 
    La valeur de gaz est une RESISTANCE, pas une concentration. Elle
-   derive longuement apres la mise sous tension : voir le croquis
-   Arduino/gas_warmup_test/ qui mesure cette duree. */
+   derive longuement apres la mise sous tension : le croquis
+   Arduino/gas_warmup_test/ mesure cette duree, mais n'a PAS ENCORE
+   ETE EXECUTE. Aucune valeur de duree de chauffe n'est donc etablie. */
 
 /* --- Camera Arducam Mini 5MP Plus (B0068, OV5642) -------- VALIDATED --
    Cablage : CS -> D10, MOSI -> D11, MISO -> D12, SCK -> D13,
@@ -126,9 +135,10 @@
    UNE IMAGE.
      Electronics, scenes variees : 3 917 a 8 008 octets
      Electronics, scene sombre   : 3 128 a 3 192 octets
+     Electronics, 28/11          : 4 520 a 4 616 octets
      NetSec,      piece sombre   : 2 800 a 3 600 octets  (C17)
-   La taille depend entierement du detail de la scene. Controler
-   l'integrite par les marqueurs FF D8 et FF D9, jamais par un seuil. */
+   Controler l'integrite par les marqueurs FF D8 et FF D9, jamais par
+   un seuil d'octets. */
 
 #define DELAI_AVANT_CAPTURE_MS     1000
 
@@ -144,20 +154,18 @@
 #define ULTRASON_DELAI_MESURE_MS   60
 #define VITESSE_SON_CM_US          0.0343f
 
-/* -- REJET DES LECTURES DE BUTEE ------------------------- VALIDATED --
-   Signale par NetSec le 25/11. Quand le capteur perd sa cible, il ne
-   renvoie pas « rien » : il renvoie l'une de ses deux butees.
+/* -- REJET DES LECTURES DE BUTEE (C20) ------------------- VALIDATED --
+   Correction du 25/11, signalee par NetSec. Quand le capteur perd sa
+   cible, il ne renvoie pas « rien » : il renvoie l'une de ses deux
+   butees.
 
      butee basse : 3,7 cm   (215 us, valeur repetee a l'identique)
      butee haute : 386 a 393 cm
 
-   Ce ne sont PAS des mesures. Releves de reference a l'appui :
+   Releves de reference :
      - plus grande distance REELLE observee ..... 278,1 cm
      - artefacts hauts observes ................. 386,2 / 390,1 /
                                                   392,5 / 392,6 cm
-   Les seuils ci-dessous laissent donc un large ecart de part et
-   d'autre. La fiche du HC-SR04 annonce par ailleurs 2 cm de distance
-   minimale : en deca, aucune mesure n'est fiable.
 
    >> ORDRE DES FILTRES, IMPOSE — ne pas inverser :
       1. ecarter d'abord toute lecture hors [MIN ; MAX] ;
@@ -167,7 +175,9 @@
 
    Raison : la butee basse de 3,7 cm se repete a l'identique, donc son
    ecart vaut 0,0 cm. Elle passait le filtre d'ecart et tombait sous le
-   seuil de detection : elle declenchait une FAUSSE INTRUSION. */
+   seuil de detection : elle declenchait une FAUSSE INTRUSION.
+   Les memes seuils sont repris cote serveur par NetSec (controle de
+   coherence des deux cotes). */
 #define ULTRASON_ARTEFACT_MIN_CM       4.0f
 #define ULTRASON_ARTEFACT_MAX_CM       385.0f
 
@@ -190,64 +200,87 @@
 /* =====================================================================
    4. ACTIONNEURS
    ---------------------------------------------------------------------
-   Il n'y a plus de servomoteur (D32) ni de LED RGB (22/11).
+   Il n'y a plus de servomoteur (D32, 05/11) ni de LED rouge simple.
+   Il n'y a AUCUNE reaction thermique (D33 abrogee, 28/11).
 
-   >> POINT A TRANCHER PAR BRAIN
-      D33 etablit que la LED RGB est la SEULE reaction a une temperature
-      hors consigne. Elle est retiree : il ne reste donc AUCUNE reaction
-      thermique sur la maquette.
-
-   Exclusivite D16 : le BUZZER et la CAMERA ne sont jamais actifs en
-   meme temps.
+   Le buzzer releve du mode ALERTER et les images du mode OBTENIR
+   (D11) ; D16 interdit par ailleurs qu'ils soient actifs en meme
+   temps. Electronics fournit les broches et les etages de puissance :
+   l'enchainement des modes releve de NetSec (D28).
    ===================================================================== */
 
-/* --- Buzzer actif ------------------------------------ VALIDATED/PROP --
-   Type ACTIF confirme sur la piece reelle (D05).           VALIDATED
-   Courant de la fiche du format presume TMB12A05 : jusqu'a 30 mA,
-   soit pres de quatre fois la limite de 8 mA.              TO VERIFY
+/* --- LED RGB, voyant d'etat (D45) ------------------------ VALIDATED --
+   Decision de l'utilisateur du 28/11 :
+     VERT  = fonctionnement normal
+     ROUGE = detection (signalee aussi sur le dashboard)
 
-   => TRANSISTOR OBLIGATOIRE sur une R4.
+   Cablage : rouge -> 1 kOhm -> D3 ; vert -> 1 kOhm -> D5 ;
+             patte commune (cathode) -> GND.
 
-   Etat des pieces au 25/11 :
-     resistance de base 1 kOhm ... DISPONIBLE
-     transistor NPN .............. MANQUANT  <- seul blocage
-     diode 1N4148 ................ manquante (recommandee)
+   Le canal BLEU n'est PAS cable. Aucune constante ne lui est associee,
+   pour qu'aucun croquis ne l'utilise par inadvertance. D6 est libre.
 
-   Montage, des que le transistor sera la :                 PROPOSED
-     buzzer + -> 5V
-     buzzer - -> collecteur d'un transistor NPN
-     emetteur -> GND
-     base     -> resistance 1 kOhm -> PIN_BUZZER
-     diode 1N4148 en parallele du buzzer, cathode cote 5V
-   Le montage N'INVERSE PAS le signal : niveau haut = buzzer actif. */
+   Courants, pour une alimentation de 5 V :
+     rouge (5 - 2,0) / 1000 = 3,0 mA
+     vert  (5 - 3,1) / 1000 = 1,9 mA
+   Tous deux sous la limite de 8 mA. Le vert sera moins lumineux que le
+   rouge, sa tension de seuil etant plus elevee. Une 330 ohms les
+   equilibrerait ; seules des 1 kOhm sont disponibles. Les seuils reels
+   ne sont pas mesurables faute de multimetre (U43).
+
+   Sur le coeur Renesas, une digitalWrite() apres une analogWrite() sur
+   la meme broche peut rester sans effet : n'utiliser QUE
+   analogWrite() sur ces deux broches.                      TO VERIFY */
+#define PIN_LED_RGB_ROUGE          3     /* PWM */
+#define PIN_LED_RGB_VERT           5     /* PWM */
+#define LED_RGB_ROUGE_OHMS         1000
+#define LED_RGB_VERT_OHMS          1000
+
+/* --- Buzzer actif, pilote par un L293D ------------------ VALIDATED --
+   Type ACTIF confirme sur la piece reelle : commande en tout ou rien
+   (D05). Fonctionnement verifie le 28/11 sur 8 cycles.
+   Le buzzer appartient au mode ALERTER (D11).
+   Courant : jusqu'a 30 mA (fiche du format presume TMB12A05), soit
+   pres de quatre fois la limite de 8 mA d'une broche.      TO VERIFY
+
+   => UN ETAGE DE PUISSANCE EST OBLIGATOIRE. Un montage direct, valable
+      sur une Uno R3 (40 mA par broche), ne l'est PAS ici.
+
+   ETAGE RETENU : L293D (quadruple demi-pont). Il remplace le
+   transistor NPN envisage avant :
+     - 600 mA par canal, tres au-dela des 30 mA necessaires ;
+     - entree LOGIQUE : aucune resistance de base ;
+     - diodes de protection INTEGREES (le « D » de L293D).
+   Le transistor NPN et la diode 1N4148 ne sont donc plus a acquerir.
+
+   Cablage du L293D, canal 1 (patte 1 reperee par une encoche) :
+     patte 16  VCC1        -> 5V    (alimentation logique)
+     patte 8   VCC2        -> 5V    (alimentation des sorties)
+     pattes 4, 5, 12, 13   -> GND   (LES QUATRE : aussi dissipation)
+     patte 1   1,2EN       -> 5V    (canal active en permanence)
+     patte 2   1A          -> PIN_BUZZER
+     patte 3   1Y          -> buzzer +
+     buzzer -              -> GND
+
+   Le signal N'EST PAS INVERSE : niveau haut = buzzer actif.
+
+   Reserves, non mesurables faute de multimetre :
+     - chute de tension du L293D entre VCC2 et sa sortie, specifiee par
+       TI a 600 mA seulement (1,4 a 1,8 V) ; a 30 mA elle sera bien
+       plus faible. Volume juge correct a l'oreille.         TO VERIFY
+     - le L293D consomme lui-meme 13 a 22 mA sur VCC1.       TO VERIFY
+     - le boitier doit enjamber le canal central de la breadboard. */
 #define PIN_BUZZER                 2
-#define BUZZER_BASE_OHMS           1000
-
-/* --- LED rouge exterieure -------------------------------- VALIDATED --
-   Alerte intrusion, poteau avant gauche (D14, M7).
-   Cablage : anode -> resistance 1 kOhm -> D4, cathode -> GND.
-   Resistance serie OBLIGATOIRE.
-   1 kOhm donne environ 3,0 mA : clignotement confirme visuellement le
-   22/11, bien visible. */
-#define PIN_LED_ROUGE              4
-#define LED_ROUGE_OHMS             1000
 
 /* =====================================================================
    5. BROCHES RESERVEES ET LIBRES
    ---------------------------------------------------------------------
    D0, D1       : liaison serie, ne pas utiliser.
-   D3, D5, D6   : LIBRES (LED RGB retiree). Broches PWM.
+   D4           : LIBRE (LED rouge simple retiree).
+   D6           : LIBRE (canal bleu de la LED RGB non cable, D45). PWM.
    D9           : LIBRE (servomoteur retire, D32). PWM.
    D13          : SPI SCK, partagee avec la LED integree de la carte.
    A0..A3       : libres.
-   ===================================================================== */
-
-/* =====================================================================
-   6. POINT NON TRANCHE
-   ---------------------------------------------------------------------
-   Sur le coeur Renesas, une digitalWrite() apres une analogWrite() sur
-   la meme broche peut rester sans effet. Sans objet tant qu'aucune
-   sortie PWM n'est utilisee.                               TO VERIFY
    ===================================================================== */
 
 #endif  /* PINS_H */

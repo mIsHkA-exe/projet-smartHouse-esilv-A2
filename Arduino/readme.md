@@ -1,9 +1,10 @@
 # Arduino — Smart House
 
->Firmware de la carte et croquis de test des composants.
->
->[![Arduino](https://img.shields.io/badge/Arduino-UNO%20R4%20WiFi-00979D?logo=arduino\&logoColor=white)](https://www.arduino.cc/)
->[![C++](https://img.shields.io/badge/C%2B%2B-Embedded-00599C?logo=cplusplus\&logoColor=white)](https://isocpp.org/)
+Firmware de la carte et croquis de test des composants.
+
+> **Version :** v2 — 28/11/2026 · **Responsable :** discussion `Electronics`
+> Toute modification du brochage doit être signalée : la discussion `NetSec` en dépend.
+> `smart_house/pins.h` est la **référence unique** du brochage.
 
 ---
 
@@ -15,11 +16,15 @@
 | Capteur d'ambiance | Adafruit BME680 STEMMA QT | I²C, adresse 0x77 |
 | Caméra | Arducam Mini 5MP Plus (B0068, OV5642) | SPI + I²C, carte marquée UC-367 Rev.G |
 | Détection | HC-SR04 | Logique 5 V |
-| Fenêtre | Servomoteur FEETECH FS90 | Positionnel, **pas** FS90R |
-| Alerte sonore | Buzzer actif 5 V | Transistor obligatoire, voir § 6 |
-| Alerte visuelle | LED RGB à cathode commune, LED rouge 5 mm | Résistances série obligatoires |
+| Voyant d'état | LED RGB à cathode commune | Vert = normal, rouge = détection (D45). **Bleu non câblé** |
+| Alerte sonore | Buzzer actif 5 V | **Obligatoirement** derrière un L293D, voir § 6 |
+| Étage de puissance | L293D, quadruple demi-pont | Pilote le buzzer |
 
 Alimentation : **port USB-C du PC uniquement**, aucune alimentation externe.
+
+Une cellule solaire Nedis SOLCH10WT est présente sur la maquette mais **n'est pas raccordée** : 3 W pour un besoin pouvant atteindre 640 mA, sans stockage, et en intérieur. Le dimensionnement est détaillé au § 1 de `smart_house/pins.h`.
+
+**Retirés du projet** : servomoteur FS90 (D32), LED rouge simple, bouton poussoir (D29).
 
 ---
 
@@ -47,7 +52,7 @@ Outils → Gérer les bibliothèques :
 
 L'IDE propose d'installer les deux dépendances automatiquement : accepter.
 
-`Wire`, `SPI`, `Servo` et `WiFiS3` sont fournies avec le paquet de cartes : rien à installer.
+`Wire`, `SPI` et `WiFiS3` sont fournies avec le paquet de cartes : rien à installer.
 
 ### 2.3 Bibliothèque ArduCAM — installation manuelle et correctifs
 
@@ -96,7 +101,7 @@ par :
 		#if (defined(ESP8266)||defined(ESP32)||defined(TEENSYDUINO) ||defined(NRF52840_XXAA)||defined(ARDUINO_ARCH_RENESAS))
 ```
 
-> Ce second correctif est **indispensable** et sa omission ne produit aucune erreur de compilation. Sans lui, `B_CS` reçoit un masque de bits au lieu du numéro de broche, la ligne CS n'est jamais pilotée, et le test du bus SPI échoue sans explication.
+> Ce second correctif est **indispensable** et son omission ne produit **aucune erreur de compilation**. Sans lui, `B_CS` reçoit un masque de bits au lieu du numéro de broche, la ligne CS n'est jamais pilotée, et le test du bus SPI échoue sans explication.
 
 **Configuration — `libraries/ArduCAM/memorysaver.h`**
 
@@ -117,15 +122,20 @@ Toutes les autres lignes de cette étape, y compris `ARDUCAM_SHIELD_V2`, doivent
 | `smart_house/smart_house.ino` | Croquis principal, boucle non bloquante |
 | `smart_house/pins.h` | **Brochage et contraintes matérielles.** Propriété d'`Electronics` |
 | `smart_house/arduino_secrets.h.example` | Modèle des identifiants, sans valeurs réelles |
+| `wiring_test/` | **Vérification du câblage du montage final.** Le plus utile au quotidien |
 | `bme680_test/` | Test du capteur d'ambiance : scan I²C et lecture des 4 grandeurs |
 | `arducam_test/` | Test des bus SPI et I²C de la caméra, sans capture |
 | `arducam_capture/` | Capture JPEG 320 × 240 et transfert en hexadécimal |
 | `hcsr04_test/` | Mesure de distance et évaluation de la stabilité |
-| `servo_test/` | Test du servo en 4 phases, avec détection de redémarrage |
-| `integration_test/` | Les quatre composants ensemble, Wi-Fi actif |
+| `gas_warmup_test/` | Chauffe du BME680 sur 20 min et décalage de température |
+| `mqtt_test/` | Essais MQTT. Propriété de `NetSec` |
 | `tools/hex_to_jpg.py` | Reconstitution d'une image sur le PC |
+| `servo_test/` | ⚠️ **Historique.** Composant retiré du projet (D32) |
+| `integration_test/` | ⚠️ **Historique.** Fait manœuvrer le servomoteur, retiré (D32) |
 
 Contrainte de l'IDE : chaque croquis vit dans un dossier portant le même nom que son fichier `.ino`.
+
+Les croquis marqués **historique** ne correspondent plus au matériel et ne doivent pas servir de référence. Ils sont conservés comme trace de la campagne de tests.
 
 ---
 
@@ -135,7 +145,7 @@ Contrainte de l'IDE : chaque croquis vit dans un dossier portant le même nom qu
 2. Téléverser.
 3. Ouvrir le moniteur série, réglé sur **115200 bauds**.
 
-Les croquis de test se lancent **un composant à la fois**, les autres débranchés, sauf `integration_test` qui les réunit.
+Les croquis de test se lancent **un composant à la fois**, les autres débranchés, sauf `wiring_test` qui vérifie le montage complet.
 
 ### Reconstituer une image de la caméra
 
@@ -155,7 +165,7 @@ Le script n'utilise que la bibliothèque standard de Python. Il ne garde que ce 
 
 Un secret poussé une fois reste dans l'historique Git, même après suppression.
 
-Les croquis de test n'utilisent aucun identifiant. `integration_test` active le Wi-Fi par un **scan des réseaux**, qui allume le module et émet des trames sans connexion ni mot de passe.
+Les croquis de test n'utilisent aucun identifiant.
 
 ---
 
@@ -172,30 +182,49 @@ Serial.begin(115200);
 delay(3000);
 ```
 
-### Servo : toujours préciser la plage d'impulsion
-
-```cpp
-servo.attach(PIN_SERVO, SERVO_US_MIN, SERVO_US_MAX);  // 900, 2100
-```
-
-Sans ces deux valeurs, la bibliothèque `Servo` utilise 544 à 2400 µs par défaut, pousse le FS90 **au-delà de ses butées mécaniques** et le place en blocage permanent, à 700 mA contre 100 mA en mouvement libre.
-
-Appeler `detach()` au repos : le servo ne consomme alors plus rien entre deux manœuvres.
-
 ### Limite de courant par broche : 8 mA
 
-C'est quatre fois moins que sur une Uno R3. Conséquences :
+C'est **cinq fois moins** que sur une Uno R3, qui tolère 40 mA. Beaucoup de montages trouvés en ligne supposent une R3 et ne sont **pas** transposables ici.
+
+Conséquences :
 
 - **Une LED ne se branche jamais sans résistance série.** C'est le seul cas où l'absence d'un composant peut endommager la carte.
-- Le buzzer actif consomme jusqu'à 30 mA : **un transistor est obligatoire**, ce n'est pas optionnel.
+- Le buzzer actif consomme jusqu'à 30 mA : **un étage de puissance est obligatoire**, ce n'est pas optionnel.
 
-### Point non tranché : conflit de timers
+### Le buzzer passe par un L293D
 
-Sur les cartes AVR, l'usage de la bibliothèque `Servo` désactive le PWM de certaines broches. Aucune documentation officielle n'a été trouvée pour l'architecture Renesas.
+Le L293D remplace avantageusement un transistor NPN : 600 mA par canal, entrée **logique** donc aucune résistance de base, et **diodes de protection intégrées** — c'est le `D` de L293**D**.
 
-À vérifier dès que la LED RGB sera disponible : ses couleurs doivent varier normalement pendant que le servo est attaché. Si le PWM est désactivé sur D3, D5 ou D6, le brochage de `pins.h` devra être modifié.
+Câblage du canal 1, patte 1 repérée par une encoche :
 
-Autre point constaté sur le cœur Renesas : une `digitalWrite()` après une `analogWrite()` sur la même broche peut rester sans effet. Pour la LED RGB, toujours utiliser `analogWrite()`.
+| Patte | Nom | Vers |
+|---|---|---|
+| 16 | `VCC1` | 5V |
+| 8 | `VCC2` | 5V |
+| 4, 5, 12, 13 | `GND` | GND — **les quatre**, elles servent aussi de dissipation |
+| 1 | `1,2EN` | 5V |
+| 2 | `1A` | **D2** |
+| 3 | `1Y` | Buzzer `+` |
+
+Buzzer `−` → GND. Le signal **n'est pas inversé** : niveau haut sur `D2` = buzzer actif.
+
+Le boîtier doit **enjamber le canal central** de la breadboard, sinon ses deux rangées sont court-circuitées.
+
+### Capteur à ultrasons : écarter les butées avant tout calcul
+
+Quand le HC-SR04 perd sa cible, il ne renvoie pas « rien » : il renvoie l'une de ses deux butées, **3,7 cm** ou **386 à 393 cm**. Ce ne sont pas des mesures.
+
+L'ordre de traitement est imposé :
+
+1. écarter toute lecture hors de `[4 ; 385]` cm ;
+2. calculer **ensuite** médiane et écart sur ce qui reste ;
+3. s'il ne reste aucune lecture, c'est une **absence de mesure, jamais une détection**.
+
+La butée basse se répète à l'identique, donc son écart vaut `0,0 cm` : sans l'étape 1 elle passe tous les filtres statistiques et déclenche une fausse intrusion.
+
+### LED RGB : toujours `analogWrite()`
+
+Sur le cœur Renesas, une `digitalWrite()` après une `analogWrite()` sur la même broche peut rester sans effet. Pour la LED RGB, utiliser exclusivement `analogWrite()`.
 
 ---
 
@@ -205,12 +234,13 @@ Valeurs relevées pendant la campagne de tests, utiles pour comparer en cas de p
 
 | Mesure | Valeur de référence |
 |---|---|
-| Adresses sur le bus I²C | 0x3C (caméra) et 0x77 (BME680) |
-| Registre de test de l'ArduChip | Écrire 0x55, relire 0x55 |
-| Identifiant du capteur OV5642 | 0x56 puis 0x42 |
-| Taille d'une image JPEG 320 × 240 | 6 000 à 8 500 octets |
+| Adresses sur le bus I²C | `0x3C` (caméra) et `0x77` (BME680) |
+| Registre de test de l'ArduChip | Écrire `0x55`, relire `0x55` |
+| Identifiant du capteur OV5642 | `0x56` puis `0x42` |
+| Taille d'une image JPEG 320 × 240 | **2 800 à 8 000 octets** — dépend entièrement de la scène, **ne jamais s'en servir pour valider une image** |
 | Bruit du HC-SR04 sur cible immobile | Écart min-max de 0,0 à 1,6 cm |
-| Occupation d'`integration_test` | 85 420 o de flash (32 %), 10 572 o de SRAM (32 %) |
+| Résistance de gaz du BME680 | Monte lentement après la mise sous tension, de ~10 kΩ vers ~92 kΩ. **Non exploitable avant stabilisation** |
+| Unités de la bibliothèque BME680 | `pressure` en **pascals**, `gas_resistance` en **ohms** |
 
 ---
 
@@ -224,4 +254,7 @@ Valeurs relevées pendant la campagne de tests, utiles pour comparer en cas de p
 | `Decommenter #define OV5642_MINI_5MP_PLUS` | `memorysaver.h` non configuré (§ 2.3) |
 | Moniteur série vide après téléversement | Appuyer une fois sur RESET, moniteur ouvert |
 | Le port n'apparaît pas | Double appui rapide sur RESET |
-| BME680 trouvé à 0x76 au lieu de 0x77 | Pastille « Addr » pontée au dos de la carte |
+| BME680 trouvé à `0x76` au lieu de `0x77` | Pastille « Addr » pontée au dos de la carte |
+| HC-SR04 : « aucune mesure retenue » en boucle | Aucune cible dans la portée, ou surface oblique ou absorbante |
+| Le buzzer ne sonne pas | Vérifier les **quatre** masses du L293D, et que `1,2EN` est bien au 5V |
+| Une couleur de la LED manque | Vérifier sa résistance de 1 kΩ et le sens de la LED |

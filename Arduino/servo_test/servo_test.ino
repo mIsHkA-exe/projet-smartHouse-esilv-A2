@@ -1,4 +1,12 @@
 /*
+  /!\ CROQUIS HISTORIQUE — NE PLUS UTILISER COMME REFERENCE
+  Le servomoteur a ete RETIRE du projet le 05/11/2026 (D32).
+  Ce croquis est conserve comme trace de la campagne de tests : il
+  ne correspond plus au materiel monte. Pour le montage actuel, voir
+  Arduino/wiring_test/ et Arduino/smart_house/pins.h.
+*/
+
+/*
   servo_test — Smart House
   Chemin dans le depot : Arduino/servo_test/servo_test.ino
   (le dossier doit porter le meme nom que le fichier .ino)

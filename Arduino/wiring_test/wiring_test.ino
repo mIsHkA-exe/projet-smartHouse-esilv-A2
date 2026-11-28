@@ -8,19 +8,13 @@
            chaque composant repond a sa place, et que l'alimentation
            tient. La logique releve de NetSec (D28).
 
-  Composants : BME680, camera Arducam, HC-SR04, LED rouge.
-  Buzzer     : ABSENT tant que le transistor manque (voir plus bas).
-  Retires du projet : servomoteur (D32), LED RGB (22/11).
-
-  Cablage complet du montage final :
-    BME680     VIN -> 5V   GND -> GND   SDI -> A4   SCK -> A5
-    Camera     CS  -> D10  MOSI -> D11  MISO -> D12  SCK -> D13
-               SDA -> A4   SCL  -> A5   VCC  -> 5V   GND -> GND
-    HC-SR04    VCC -> 5V   TRIG -> D7   ECHO -> D8   GND -> GND
-    LED rouge  anode -> resistance 1 kOhm -> D4   cathode -> GND
+  Composants : BME680, camera Arducam, HC-SR04, LED RGB (voyant d'etat,
+               D45), buzzer actif pilote par un L293D.
+  Retires du projet : servomoteur (D32), LED rouge simple.
+  Canal BLEU de la LED RGB : NON CABLE (D45). D4 et D6 sont libres.
 
   Alimentation : port USB-C du PC. La cellule solaire n'est PAS
-  raccordee (voir pins.h § 1 pour le dimensionnement qui le justifie).
+  raccordee (voir pins.h § 1).
 
   Prealable : correctifs Renesas dans la bibliotheque ArduCAM, et
               #define OV5642_MINI_5MP_PLUS seul decommente.
@@ -28,24 +22,41 @@
   Statut : test de cablage. AUCUN IDENTIFIANT REEL ICI.
 
   ---------------------------------------------------------------------
-  Version : v2 — 25/11/2026
-    - CORRECTION signalee par NetSec : rejet des lectures de butee du
-      HC-SR04 AVANT le calcul de mediane et d'ecart. La v1 laissait
-      passer la butee basse de 3,7 cm, dont l'ecart vaut 0,0 cm : elle
-      aurait declenche une FAUSSE INTRUSION dans le firmware final.
+  CABLAGE COMPLET
+  ---------------------------------------------------------------------
+    BME680     VIN -> 5V   GND -> GND   SDI -> A4   SCK -> A5
+               (SDO, CS et 3Vo NON connectees : mode I2C, 0x77)
+
+    Camera     CS  -> D10  MOSI -> D11  MISO -> D12  SCK -> D13
+               SDA -> A4   SCL  -> A5   VCC  -> 5V   GND -> GND
+
+    HC-SR04    VCC -> 5V   TRIG -> D7   ECHO -> D8   GND -> GND
+
+    LED RGB    rouge -> 1 kOhm -> D3
+    (cathode   vert  -> 1 kOhm -> D5
+     commune)  commune -> GND
+               bleu : NON CABLE
+
+    L293D      patte 16  VCC1       -> 5V
+    (patte 1   patte 8   VCC2       -> 5V
+     reperee   pattes 4, 5, 12, 13  -> GND   (LES QUATRE)
+     par une   patte 1   1,2EN      -> 5V
+     encoche)  patte 2   1A         -> D2
+               patte 3   1Y         -> buzzer +
+               buzzer -             -> GND
+
+  Le boitier du L293D doit ENJAMBER le canal central de la breadboard,
+  sinon ses deux rangees de pattes sont court-circuitees.
+
+  ---------------------------------------------------------------------
+  Version : v5 — 28/11/2026
+    - D45 : la LED RGB est un VOYANT D'ETAT, vert en fonctionnement
+      normal et rouge a la detection. Le bleu n'est plus cable : la
+      sequence de test ne montre plus ni bleu ni orange.
+  Version : v4 — 28/11/2026 (buzzer active via L293D)
+  Version : v3 — 28/11/2026 (LED RGB a la place de la LED rouge)
+  Version : v2 — 25/11/2026 (rejet des butees du HC-SR04)
   Version : v1 — 22/11/2026
-  ---------------------------------------------------------------------
-
-  ---------------------------------------------------------------------
-  BUZZER — LIRE AVANT DE PASSER BUZZER_PRESENT A 1
-  ---------------------------------------------------------------------
-  Le buzzer consomme jusqu'a 30 mA. La limite d'une broche de la UNO R4
-  WiFi est de 8 mA, contre 40 mA sur une Uno R3 : un montage direct,
-  courant sur R3, N'EST PAS valable ici.
-
-  Ne passer BUZZER_PRESENT a 1 QU'APRES avoir monte l'etage a
-  transistor decrit dans pins.h. Le transistor est la seule piece
-  encore manquante : la resistance de 1 kOhm est disponible.
   ---------------------------------------------------------------------
 */
 
@@ -60,21 +71,25 @@
   #error "Decommenter #define OV5642_MINI_5MP_PLUS dans memorysaver.h"
 #endif
 
-/* Passer a 1 UNIQUEMENT une fois l'etage a transistor monte. */
-#define BUZZER_PRESENT  0
+/* Mettre a 0 pour tester le reste du montage sans le buzzer.
+   A 1, le croquis suppose le L293D cable comme decrit ci-dessus.
+   NE JAMAIS brancher le buzzer directement sur D2 : 30 mA contre une
+   limite de 8 mA par broche sur la UNO R4 WiFi. */
+#define BUZZER_PRESENT  1
 
 /* ----------------------------------------------------------- brochage
-   Ces valeurs recopient Arduino/smart_house/pins.h v4, qui reste LA
+   Ces valeurs recopient Arduino/smart_house/pins.h v6, qui reste LA
    reference. L'IDE Arduino ne sait pas inclure un fichier d'un autre
-   dossier de croquis : la duplication est subie, pas choisie. Toute
-   divergence avec pins.h est une erreur a corriger ici. */
+   dossier de croquis : la duplication est subie, pas choisie. */
 const int PIN_CAMERA_CS     = 10;
 const int PIN_ULTRASON_TRIG = 7;
 const int PIN_ULTRASON_ECHO = 8;
-const int PIN_LED_ROUGE     = 4;
-#if BUZZER_PRESENT
-const int PIN_BUZZER        = 2;
-#endif
+
+const int PIN_RGB_ROUGE     = 3;   /* PWM */
+const int PIN_RGB_VERT      = 5;   /* PWM */
+/* Pas de PIN_RGB_BLEU : le canal bleu n'est pas cable (D45). */
+
+const int PIN_BUZZER        = 2;   /* -> patte 2 (1A) du L293D */
 
 const uint8_t ADDR_I2C_BME680 = 0x77;
 const uint8_t ADDR_I2C_CAMERA = 0x3C;
@@ -84,7 +99,8 @@ const unsigned long ULTRASON_DELAI_MS   = 60;
 const float         VITESSE_SON_CM_US   = 0.0343f;
 const uint8_t       ULTRASON_MESURES    = 5;
 
-/* Butees du capteur : ce ne sont PAS des mesures (pins.h v4 § 3). */
+/* Butees du capteur : ce ne sont PAS des mesures. Quand il perd sa
+   cible, le HC-SR04 renvoie soit 3,7 cm, soit 386 a 393 cm. */
 const float ULTRASON_ARTEFACT_MIN_CM = 4.0f;
 const float ULTRASON_ARTEFACT_MAX_CM = 385.0f;
 
@@ -94,6 +110,26 @@ ArduCAM myCAM(OV5642, PIN_CAMERA_CS);
 unsigned int cycle = 0;
 bool bmePresent = false;
 bool camPresente = false;
+
+/* ------------------------------------------- LED RGB, voyant d'etat
+   Cathode commune : une valeur HAUTE allume la couleur.
+   Sur le coeur Renesas, une digitalWrite() apres une analogWrite() sur
+   la meme broche peut rester sans effet : on n'utilise QUE
+   analogWrite() sur ces deux broches. */
+void voyantVert() {
+  analogWrite(PIN_RGB_ROUGE, 0);
+  analogWrite(PIN_RGB_VERT, 255);
+}
+
+void voyantRouge() {
+  analogWrite(PIN_RGB_ROUGE, 255);
+  analogWrite(PIN_RGB_VERT, 0);
+}
+
+void voyantEteint() {
+  analogWrite(PIN_RGB_ROUGE, 0);
+  analogWrite(PIN_RGB_VERT, 0);
+}
 
 /* ------------------------------------------------------------ scan I2C
    Doit montrer DEUX adresses : 0x3C (camera) et 0x77 (BME680). */
@@ -159,12 +195,13 @@ void setup() {
   pinMode(PIN_ULTRASON_ECHO, INPUT);
   digitalWrite(PIN_ULTRASON_TRIG, LOW);
 
-  pinMode(PIN_LED_ROUGE, OUTPUT);
-  digitalWrite(PIN_LED_ROUGE, LOW);
+  pinMode(PIN_RGB_ROUGE, OUTPUT);
+  pinMode(PIN_RGB_VERT,  OUTPUT);
+  voyantEteint();
 
 #if BUZZER_PRESENT
   pinMode(PIN_BUZZER, OUTPUT);
-  digitalWrite(PIN_BUZZER, LOW);
+  digitalWrite(PIN_BUZZER, LOW);   /* L293D au repos : buzzer silencieux */
 #endif
 
   pinMode(PIN_CAMERA_CS, OUTPUT);
@@ -207,9 +244,9 @@ void setup() {
 
   Serial.print(F("\n[init] Buzzer : "));
 #if BUZZER_PRESENT
-  Serial.println(F("present, etage a transistor suppose monte"));
+  Serial.println(F("actif, via L293D sur D2 (patte 2 = 1A)"));
 #else
-  Serial.println(F("ABSENT (transistor manquant) - D2 reservee"));
+  Serial.println(F("DESACTIVE (BUZZER_PRESENT = 0)"));
 #endif
 
   Serial.println();
@@ -225,6 +262,9 @@ void loop() {
   Serial.println(F(" ====="));
 
   /* --- BME680 --------------------------------------------------------- */
+  /* Affichage en hPa et kOhm pour la lisibilite du test. Le firmware
+     final transmettra les valeurs BRUTES en Pa et en Ohm, sans
+     conversion sur la carte (contrat NetSec v0.9). */
   Serial.print(F("[BME680 ] "));
   if (bmePresent && bme.performReading()) {
     Serial.print(bme.temperature, 1);
@@ -240,7 +280,7 @@ void loop() {
   }
 
   /* --- HC-SR04 -------------------------------------------------------- */
-  /* ORDRE IMPOSE (pins.h v4 § 3) :
+  /* ORDRE IMPOSE (C20) :
        1. ecarter les lectures de butee ;
        2. mediane et ecart sur ce qui reste ;
        3. zero lecture retenue = absence de mesure, jamais une
@@ -335,22 +375,23 @@ void loop() {
     Serial.println(F("absente"));
   }
 
-  /* --- LED rouge : trois clignotements --------------------------------- */
-  /* Verification de cablage seulement. Si elle reste eteinte, verifier
-     le sens de la LED (patte longue = anode, cote resistance). */
-  Serial.print(F("[LED    ] trois clignotements... "));
-  for (uint8_t i = 0; i < 3; i++) {
-    digitalWrite(PIN_LED_ROUGE, HIGH);
-    delay(200);
-    digitalWrite(PIN_LED_ROUGE, LOW);
-    delay(200);
-  }
-  Serial.println(F("fait"));
+  /* --- LED RGB : les deux etats du voyant (D45) ------------------------ */
+  /* Regarde la LED. Elle doit passer au VERT, puis au ROUGE.
+     Si une couleur manque, verifier sa resistance de 1 kOhm et le sens
+     de la LED (la patte la plus longue est la cathode commune, vers
+     GND, sur la plupart des modeles a cathode commune). */
+  Serial.println(F("[LED RGB] vert (normal), puis rouge (detection)"));
 
-  /* --- Buzzer : seulement si l'etage a transistor est monte ------------ */
+  voyantVert();    delay(1000);
+  voyantRouge();   delay(1000);
+  voyantEteint();
+  delay(300);
+
+  /* --- Buzzer, via le L293D ------------------------------------------- */
 #if BUZZER_PRESENT
   /* D16 : le buzzer et la camera ne sont jamais actifs en meme temps.
-     La capture est terminee ici, donc l'emission sonore est permise. */
+     La capture est terminee ici, donc l'emission sonore est permise.
+     Signal NON inverse : HIGH sur D2 -> 1A haut -> 1Y haut -> buzzer. */
   Serial.print(F("[Buzzer ] deux bips courts... "));
   for (uint8_t i = 0; i < 2; i++) {
     digitalWrite(PIN_BUZZER, HIGH);
